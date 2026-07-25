@@ -489,6 +489,22 @@ impl Config {
             }
         }
     }
+
+    /// Clear all Assuan-populated label fields to `None`.
+    ///
+    /// Parity with legacy `config.reset(alloc)` as called by the Assuan
+    /// `RESET` command — the legacy also resets `wayland_ui` but that is
+    /// config-file state, not Assuan runtime state; we reset only labels
+    /// for parity with the Assuan `RESET` command semantics.
+    pub fn reset(&mut self) {
+        self.labels.title = None;
+        self.labels.description = None;
+        self.labels.prompt = None;
+        self.labels.err_message = None;
+        self.labels.ok = None;
+        self.labels.not_ok = None;
+        self.labels.cancel = None;
+    }
 }
 
 #[cfg(test)]
@@ -508,6 +524,26 @@ mod tests {
         // `_` in variable does NOT match `_` in field.
         assert!(!field_eq("a_b", "a_b"));
         assert!(field_eq("a_b", "a-b"));
+    }
+
+    #[test]
+    fn reset_clears_all_labels() {
+        let mut cfg = Config::default();
+        cfg.labels.title = Some("T".into());
+        cfg.labels.description = Some("D".into());
+        cfg.labels.prompt = Some("P".into());
+        cfg.labels.err_message = Some("E".into());
+        cfg.labels.ok = Some("OK".into());
+        cfg.labels.not_ok = Some("NO".into());
+        cfg.labels.cancel = Some("X".into());
+        cfg.reset();
+        assert_eq!(cfg.labels.title, None);
+        assert_eq!(cfg.labels.description, None);
+        assert_eq!(cfg.labels.prompt, None);
+        assert_eq!(cfg.labels.err_message, None);
+        assert_eq!(cfg.labels.ok, None);
+        assert_eq!(cfg.labels.not_ok, None);
+        assert_eq!(cfg.labels.cancel, None);
     }
 
     #[test]

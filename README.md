@@ -1,5 +1,3 @@
-# nowayprompt
-
 <!-- markdownlint-disable MD033 -->
 <p align="center">
   <picture>

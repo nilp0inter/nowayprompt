@@ -1,0 +1,16 @@
+[package]
+name = "nowayprompt"
+version = "0.1.0"
+edition = "2021"
+description = "Multi-purpose Wayland prompt utility (Rust rewrite of wayprompt)"
+license = "ISC"
+
+[dependencies]
+libc = "0.2"
+zeroize = "1.8"
+memmap2 = "0.9"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1

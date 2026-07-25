@@ -36,7 +36,4 @@ in
 
   # Stage 3: hardened TTY console fallback parity.
   stage-3-tty = mkTest ./stage-3-tty.nix;
-
-  # Stage 3: Wayland frontend geometry under headless cage.
-  stage-3-wayland = mkTest ./stage-3-wayland.nix;
 }

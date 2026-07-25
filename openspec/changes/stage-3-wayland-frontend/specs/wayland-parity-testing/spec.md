@@ -1,24 +1,8 @@
 ## ADDED Requirements
 
-### Requirement: Geometry-only nixosTest under headless cage
-
-The `nixosTests.stage-3-wayland` derivation MUST run the `nowayprompt-wayland-test` `[[bin]]` target under a headless `cage` compositor with `WLR_BACKEND=headless`, `WLR_RENDERER=pixman` (software), and `WLR_LIBINPUT_NO_DEVICES=1`. The test MUST assert surface geometry (configure serial ack, width/height, scale), keyboard-driven `Event` emission, and `wl_buffer` dimensions. It MUST NOT perform `grim` pixel capture (Stage 4's contract).
-
-#### Scenario: surface configures and acks
-- **WHEN** the test binary connects to `cage` and enters `GetPin` mode
-- **THEN** it receives a `configure` event, acks the serial, and logs the configured dimensions
-
-#### Scenario: keyboard Return emits UserOk
-- **WHEN** `wtype` sends a Return keypress to the `cage` surface
-- **THEN** the test binary logs `Event::UserOk` and the driver asserts it
-
-#### Scenario: keyboard Escape emits UserAbort
-- **WHEN** `wtype` sends an Escape keypress
-- **THEN** the test binary logs `Event::UserAbort` and the driver asserts it
-
 ### Requirement: Test-only binary target
 
-The `Cargo.toml` MUST define a second `[[bin]]` target `nowayprompt-wayland-test` (path `src/bin/wayland-test.rs`) that instantiates `Wayland::new()` + `init(cfg)` and drives the frontend directly, without going through `main.rs`. The primary `nowayprompt` pinentry binary MUST remain TTY-only (Stage 4 wires frontend selection).
+The `Cargo.toml` MUST define a second `[[bin]]` target `nowayprompt-wayland-test` (path `src/bin/wayland-test.rs`) that instantiates `Wayland::new()` + `init(cfg)` and drives the frontend directly, without going through `main.rs`. The primary `nowayprompt` pinentry binary MUST remain TTY-only (Stage 4 wires frontend selection). The binary MUST log surface configure dimensions, scale, hotspot geometry, and emitted `Event`s to stderr for manual/test verification.
 
 #### Scenario: test binary exists and builds
 - **WHEN** `cargo build --bin nowayprompt-wayland-test` is run
@@ -28,18 +12,14 @@ The `Cargo.toml` MUST define a second `[[bin]]` target `nowayprompt-wayland-test
 - **WHEN** Stage 3 is complete
 - **THEN** `src/main.rs` still hardcodes `Tty::new()` and does not reference `Wayland`
 
-### Requirement: Reusable cage harness for Stage 4
+#### Scenario: binary logs geometry and events
+- **WHEN** the binary runs under a compositor and enters `GetPin` mode
+- **THEN** it logs `configured: WxH scale=S`, the hotspot geometry, and `event: UserOk`/`UserAbort`/`UserNotOk` on terminal input
 
-The `nixosTests.stage-3-wayland` harness (cage + wtype + headless VM env vars + Python driver pattern) MUST be structured so Stage 4 can extend it by adding `grim` frame capture and swapping the test binary for the real `nowayprompt` pinentry.
+### Requirement: Automated compositor test — deferred to Stage 4
 
-#### Scenario: harness reusable
-- **WHEN** Stage 4 adds `grim` and the real pinentry binary
-- **THEN** the Stage 3 cage/wtype/VM-config scaffolding is reused without rewrite
+The automated headless-compositor `nixosTest` (`nixosTests.stage-3-wayland`) is **deferred to Stage 4** (see design D10). A headless compositor test for a layer-shell client proved unreliable in the NixOS VM: `cage` does not implement `zwlr_layer_shell_v1`, and `sway` headless keyboard delivery to a layer-shell surface is racy (`wtype`'s one-shot virtual keyboard is dropped before delivery; `machine.send_key` does not reach layer-shell surfaces). Stage 3 render/geometry/keyboard parity is instead validated by a manual test against a real compositor, the unit tests, and the parity review. Stage 4 MUST add a deterministic compositor gate (a `grim`-based tolerance test or a persistent-virtual-keyboard harness).
 
-### Requirement: Geometry assertion via log-grepping
-
-The test binary MUST log surface configure serial, dimensions, scale, and emitted `Event`s to stderr. The Python driver MUST assert by grepping these logs (no external wlroots query tool required).
-
-#### Scenario: driver asserts dimensions from log
-- **WHEN** the test binary logs `configured: WxH scale=S`
-- **THEN** the Python driver greps the log and asserts W, H, and S match expected values
+#### Scenario: deferred gate
+- **WHEN** Stage 3 is complete
+- **THEN** no `nixosTests.stage-3-wayland` derivation is shipped; the deferral and its rationale are recorded in design D10, and the deterministic compositor gate is a Stage 4 deliverable

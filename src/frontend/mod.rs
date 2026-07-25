@@ -104,6 +104,12 @@ pub trait Frontend {
 }
 
 pub mod tty;
+pub mod wayland;
 
 /// Re-export the TTY frontend for convenient use.
 pub use tty::Tty;
+
+/// Re-export the Wayland frontend (Stage 3). Stage 4 wires frontend
+/// selection in `main.rs`; for now it is exercised only by the
+/// `nowayprompt-wayland-test` binary and the nixosTest.
+pub use wayland::Wayland;

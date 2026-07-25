@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license = "ISC"
 
+[[bin]]
+name = "nowayprompt-wayland-test"
+path = "src/bin/wayland-test.rs"
+
 [dependencies]
 libc = "0.2"
 zeroize = "1.8"

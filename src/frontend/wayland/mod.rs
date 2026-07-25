@@ -268,6 +268,18 @@ impl Wayland {
     pub fn state(&self) -> &WaylandState {
         &self.state
     }
+
+    /// Test introspection: the configured surface's `(width, height,
+    /// scale, hotspots)`, or `None` until the first configure event
+    /// renders the surface. Used by `wayland-test` to report real
+    /// geometry for the nixosTest.
+    pub fn surface_info(&self) -> Option<(u32, u32, u32, Vec<render::HotSpot>)> {
+        let s = self.state.surface.as_ref()?;
+        if !s.configured {
+            return None;
+        }
+        Some((s.width, s.height, s.scale, s.hotspots.clone()))
+    }
 }
 
 impl Default for Wayland {

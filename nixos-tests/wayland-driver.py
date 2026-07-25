@@ -126,9 +126,15 @@ def main():
         # --- Phase 1: configure + hotspots + Return -> UserOk ---
         restart_test_binary(binary)
         try:
-            line = wait_for_log(r"configured: 400x300 scale=1")
-            report["configured"] = True
-            report["configured_line"] = line
+            line = wait_for_log(r"configured: \d+x\d+ scale=\d+")
+            m = re.search(r"configured: (\d+)x(\d+) scale=(\d+)", line)
+            # Surface must configure with positive geometry (the exact
+            # size depends on cosmic-text font metrics, not 400x300).
+            if m and int(m.group(1)) > 0 and int(m.group(2)) > 0:
+                report["configured"] = True
+                report["configured_line"] = line
+            else:
+                report["errors"].append(f"phase1 configure: bad geometry {line!r}")
         except TimeoutError as e:
             report["errors"].append(f"phase1 configure: {e}")
 
@@ -136,7 +142,12 @@ def main():
             try:
                 hl = wait_for_log(r"hotspots:", timeout=5)
                 report["hotspots_line"] = hl
-                report["hotspots_ok"] = "Ok" in hl and "Cancel" in hl
+                # Real hotspots: contain Ok + Cancel with non-zero geometry.
+                report["hotspots_ok"] = (
+                    "Ok" in hl
+                    and "Cancel" in hl
+                    and not re.search(r"\((Ok|Cancel), 0, 0, 0, 0\)", hl)
+                )
             except TimeoutError as e:
                 report["errors"].append(f"hotspots: {e}")
 
@@ -151,7 +162,7 @@ def main():
         # --- Phase 2: restart + Escape -> UserAbort ---
         restart_test_binary(binary)
         try:
-            wait_for_log(r"configured: 400x300 scale=1")
+            wait_for_log(r"configured: \d+x\d+ scale=\d+")
         except TimeoutError as e:
             report["errors"].append(f"phase2 configure: {e}")
 

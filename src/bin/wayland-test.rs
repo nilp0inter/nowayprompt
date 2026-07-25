@@ -1,13 +1,16 @@
 //! Stage 3 Wayland frontend test binary.
 //!
 //! Drives the Wayland frontend directly for the nixosTest geometry parity
-//! harness (`nixos-tests/stage-3-wayland.nix`). Parses label/dimension CLI
-//! args, enters GetPin mode, and polls stdin + the Wayland fd for events.
+//! harness (`nixos-tests/stage-3-wayland.nix`). Parses label CLI args,
+//! enters GetPin mode, polls stdin + the Wayland fd for events, and reports
+//! the *real* configured surface geometry + hotspots (read back from the
+//! frontend once the first configure event renders the surface).
 //!
 //! Stderr log format (consumed by `wayland-driver.py`):
 //! ```text
-//! configured: 400x300 scale=1
-//! hotspots: [(Ok, ...), (Cancel, ...)]
+//! configured: <W>x<H> scale=<S>
+//! hotspots: [(Ok, x, y, w, h), (Cancel, x, y, w, h)]
+//! ready
 //! event: UserOk
 //! event: UserAbort
 //! ```
@@ -16,14 +19,13 @@ use std::io::{BufRead, BufReader};
 use std::os::fd::{AsRawFd, FromRawFd};
 
 use nowayprompt::config::{Config, Labels};
+use nowayprompt::frontend::wayland::render::HotSpot;
 use nowayprompt::frontend::{Event, Frontend, InterfaceMode, Wayland};
 use nowayprompt::secret::{set_rlimit_core_zero, SecretBuffer};
 
 fn main() {
     set_rlimit_core_zero().ok();
 
-    let mut width: u32 = 400;
-    let mut height: u32 = 300;
     let mut title = None;
     let mut description = None;
     let mut prompt = None;
@@ -31,14 +33,13 @@ fn main() {
     let mut cancel = None;
     let mut not_ok = None;
 
+    // `--width`/`--height` are accepted (the driver passes them) but
+    // ignored: the surface computes its own size from the label text.
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--width" => {
-                width = args.next().and_then(|v| v.parse().ok()).unwrap_or(400);
-            }
-            "--height" => {
-                height = args.next().and_then(|v| v.parse().ok()).unwrap_or(300);
+            "--width" | "--height" => {
+                args.next(); // consume and discard the value
             }
             "--title" => title = args.next(),
             "--description" => description = args.next(),
@@ -79,10 +80,6 @@ fn main() {
         .enter_mode(InterfaceMode::GetPin)
         .expect("enter_mode");
 
-    eprintln!("configured: {width}x{height} scale=1");
-    eprintln!("hotspots: [(Ok, 0, 0, 0, 0), (Cancel, 0, 0, 0, 0)]");
-    eprintln!("ready");
-
     let stdin = std::io::stdin();
     let stdin_fd = stdin.as_raw_fd();
     let mut reader = BufReader::new(unsafe { std::fs::File::from_raw_fd(stdin_fd) });
@@ -101,14 +98,20 @@ fn main() {
     ];
 
     let mut in_buffer = String::new();
+    // Report the real geometry once, after the first configure renders.
+    let mut reported = false;
 
-    loop {
+    'outer: loop {
         // Non-blocking flush at loop top (parity with main.rs pattern).
         if let Some(ev) = frontend.flush().expect("flush") {
-            handle_event(ev);
+            if is_terminal(ev) {
+                break 'outer;
+            }
         }
 
-        let ret = unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) };
+        // 100ms timeout so the loop keeps pumping until the surface
+        // configures (the configure reply makes the Wayland fd readable).
+        let ret = unsafe { libc::poll(fds.as_mut_ptr(), 2, 100) };
         if ret < 0 {
             if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
                 continue;
@@ -120,25 +123,47 @@ fn main() {
         // Wayland fd readable.
         if fds[1].revents & libc::POLLIN != 0 {
             let ev = frontend.handle_event().expect("handle_event");
-            handle_event(ev);
+            if is_terminal(ev) {
+                break 'outer;
+            }
         } else {
             frontend.no_event().expect("no_event");
         }
 
-        // Stdin readable.
+        // Report real geometry once the surface has configured + rendered.
+        if !reported {
+            if let Some((w, h, scale, hotspots)) = frontend.surface_info() {
+                eprintln!("configured: {w}x{h} scale={scale}");
+                eprintln!("hotspots: [{}]", format_hotspots(&hotspots));
+                eprintln!("ready");
+                reported = true;
+            }
+        }
+
+        // Stdin readable (the driver may feed `ok`/`abort` commands;
+        // primary input is wtype over Wayland). On EOF, stop polling
+        // stdin but keep running for Wayland keyboard events.
         if fds[0].revents & libc::POLLIN != 0 {
             in_buffer.clear();
             let n = reader.read_line(&mut in_buffer).expect("read_line");
             if n == 0 {
-                break; // EOF on stdin.
-            }
-            let line = in_buffer.trim_end_matches('\n');
-            match line {
-                "ok" => handle_event(Event::UserOk),
-                "abort" => handle_event(Event::UserAbort),
-                "notok" => handle_event(Event::UserNotOk),
-                _ => {
-                    secbuf.append_slice(line.as_bytes()).expect("append_slice");
+                fds[0].fd = -1; // EOF: stop polling stdin.
+                fds[0].events = 0;
+            } else {
+                let line = in_buffer.trim_end_matches('\n');
+                let terminal = match line {
+                    "ok" => Some(Event::UserOk),
+                    "abort" => Some(Event::UserAbort),
+                    "notok" => Some(Event::UserNotOk),
+                    _ => {
+                        secbuf.append_slice(line.as_bytes()).expect("append_slice");
+                        None
+                    }
+                };
+                if let Some(ev) = terminal {
+                    if is_terminal(ev) {
+                        break 'outer;
+                    }
                 }
             }
         }
@@ -147,23 +172,36 @@ fn main() {
     frontend.deinit();
 }
 
-/// Log an event to stderr; exit 0 on terminal user events.
-fn handle_event(ev: Event) {
+/// Format hotspots as `(Effect, x, y, w, h)` tuples (driver greps for the
+/// `Ok`/`Cancel` effect names).
+fn format_hotspots(hotspots: &[HotSpot]) -> String {
+    let parts: Vec<String> = hotspots
+        .iter()
+        .map(|h| {
+            format!(
+                "({:?}, {}, {}, {}, {})",
+                h.effect, h.x, h.y, h.width, h.height
+            )
+        })
+        .collect();
+    parts.join(", ")
+}
+
+/// Log an event to stderr; return `true` if it terminates the session.
+fn is_terminal(ev: Event) -> bool {
     match ev {
         Event::UserOk => {
             eprintln!("event: UserOk");
-            std::process::exit(0);
+            true
         }
         Event::UserAbort => {
             eprintln!("event: UserAbort");
-            std::process::exit(0);
+            true
         }
         Event::UserNotOk => {
             eprintln!("event: UserNotOk");
-            std::process::exit(0);
+            true
         }
-        Event::None => {
-            eprintln!("event: None");
-        }
+        Event::None => false,
     }
 }

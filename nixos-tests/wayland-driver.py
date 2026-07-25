@@ -101,7 +101,9 @@ def restart_test_binary(binary, args=None):
     cmd = ["cage", "--", binary] + (args if args is not None else DEFAULT_ARGS)
     env = {**os.environ, **CAGE_ENV}
     env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
-    os.makedirs(env["XDG_RUNTIME_DIR"], exist_ok=True)
+    # wlroots refuses a non-0700 XDG_RUNTIME_DIR.
+    os.makedirs(env["XDG_RUNTIME_DIR"], mode=0o700, exist_ok=True)
+    os.chmod(env["XDG_RUNTIME_DIR"], 0o700)
 
     log_fh = open(LOG_PATH, "a")
     _cage_proc = subprocess.Popen(cmd, stdout=log_fh, stderr=log_fh, env=env)

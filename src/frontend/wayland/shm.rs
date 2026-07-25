@@ -115,6 +115,19 @@ pub struct BufferPool {
     slots: Vec<Option<Buffer>>,
 }
 
+/// Pure slot-selection outcome (parity `Wayland.zig:1296-1327`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SlotDecision {
+    /// Reuse an idle buffer of matching size (no re-allocation).
+    Reuse(usize),
+    /// Re-init an idle mismatched-size slot.
+    Reinit(usize),
+    /// Allocate into an existing free (`None`) slot.
+    FillFree(usize),
+    /// Push a brand-new slot.
+    Push,
+}
+
 impl BufferPool {
     pub fn new() -> Self {
         Self { slots: Vec::new() }
@@ -123,7 +136,8 @@ impl BufferPool {
     /// Get the slot index of a buffer of the requested dimensions,
     /// reusing an idle buffer of matching size, else re-initing an idle
     /// mismatched-size buffer, else allocating a new slot
-    /// (parity `Wayland.zig:1282-1317`).
+    /// (parity `Wayland.zig:1282-1317`). Culls on every call (parity with
+    /// legacy's `defer cullBuffers()`).
     pub fn next_buffer(
         &mut self,
         shm: &WlShm,
@@ -131,40 +145,13 @@ impl BufferPool {
         width: u32,
         height: u32,
     ) -> Result<usize, std::io::Error> {
-        // Reuse idle matching-size slot.
-        let mut first_idle_mismatched: Option<usize> = None;
-        let mut first_free: Option<usize> = None;
-        for (i, slot) in self.slots.iter().enumerate() {
-            match slot {
-                Some(b) if !b.busy => {
-                    if b.width == width && b.height == height {
-                        return Ok(i);
-                    }
-                    if first_idle_mismatched.is_none() {
-                        first_idle_mismatched = Some(i);
-                    }
-                }
-                None if first_free.is_none() => {
-                    first_free = Some(i);
-                }
-                _ => {}
-            }
-        }
-
-        // Re-init an idle mismatched-size slot.
-        if let Some(i) = first_idle_mismatched {
-            self.slots[i] = Some(Buffer::new(shm, qh, i, width, height)?);
-            self.cull_buffers();
-            return Ok(i);
-        }
-
-        // Allocate into a free slot or push a new one.
-        let i = match first_free {
-            Some(i) => {
+        let i = match self.select_slot(width, height) {
+            SlotDecision::Reuse(i) => i,
+            SlotDecision::Reinit(i) | SlotDecision::FillFree(i) => {
                 self.slots[i] = Some(Buffer::new(shm, qh, i, width, height)?);
                 i
             }
-            None => {
+            SlotDecision::Push => {
                 let i = self.slots.len();
                 self.slots
                     .push(Some(Buffer::new(shm, qh, i, width, height)?));
@@ -173,6 +160,33 @@ impl BufferPool {
         };
         self.cull_buffers();
         Ok(i)
+    }
+
+    /// Pure slot-selection decision (testable without a live `WlShm`).
+    fn select_slot(&self, width: u32, height: u32) -> SlotDecision {
+        let mut first_idle_mismatched: Option<usize> = None;
+        let mut first_free: Option<usize> = None;
+        for (i, slot) in self.slots.iter().enumerate() {
+            match slot {
+                Some(b) if !b.busy => {
+                    if b.width == width && b.height == height {
+                        return SlotDecision::Reuse(i);
+                    }
+                    if first_idle_mismatched.is_none() {
+                        first_idle_mismatched = Some(i);
+                    }
+                }
+                None if first_free.is_none() => first_free = Some(i),
+                _ => {}
+            }
+        }
+        if let Some(i) = first_idle_mismatched {
+            SlotDecision::Reinit(i)
+        } else if let Some(i) = first_free {
+            SlotDecision::FillFree(i)
+        } else {
+            SlotDecision::Push
+        }
     }
 
     /// Access a buffer by slot index.
@@ -249,5 +263,103 @@ impl Dispatch<WlBuffer, usize> for WaylandState {
                 b.busy = false;
             }
         }
+    }
+}
+
+#[cfg(test)]
+impl Buffer {
+    /// A buffer without a live `wl_buffer`/mmap, for slot-logic tests.
+    fn dummy(width: u32, height: u32, busy: bool) -> Self {
+        Self {
+            wl_buffer: None,
+            mmap: None,
+            width,
+            height,
+            busy,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pool_with(buffers: &[(u32, u32, bool)]) -> BufferPool {
+        let mut pool = BufferPool::new();
+        for &(w, h, busy) in buffers {
+            pool.slots.push(Some(Buffer::dummy(w, h, busy)));
+        }
+        pool
+    }
+
+    #[test]
+    fn reuse_idle_matching_slot() {
+        let pool = pool_with(&[(100, 50, true), (100, 50, false)]);
+        assert_eq!(pool.select_slot(100, 50), SlotDecision::Reuse(1));
+    }
+
+    #[test]
+    fn matching_beats_earlier_mismatched() {
+        let pool = pool_with(&[(200, 80, false), (100, 50, false)]);
+        assert_eq!(pool.select_slot(100, 50), SlotDecision::Reuse(1));
+    }
+
+    #[test]
+    fn reinit_idle_mismatched_slot() {
+        let pool = pool_with(&[(100, 50, false)]);
+        assert_eq!(pool.select_slot(200, 80), SlotDecision::Reinit(0));
+    }
+
+    #[test]
+    fn fill_free_slot_when_no_idle() {
+        let mut pool = pool_with(&[(100, 50, true)]);
+        pool.slots.push(None); // slot 1: free
+        assert_eq!(pool.select_slot(100, 50), SlotDecision::FillFree(1));
+    }
+
+    #[test]
+    fn push_when_all_busy_no_free() {
+        let pool = pool_with(&[(100, 50, true)]);
+        assert_eq!(pool.select_slot(100, 50), SlotDecision::Push);
+    }
+
+    #[test]
+    fn busy_buffers_are_never_selected() {
+        // A busy matching-size buffer must not be reused.
+        let pool = pool_with(&[(100, 50, true)]);
+        assert_ne!(pool.select_slot(100, 50), SlotDecision::Reuse(0));
+    }
+
+    #[test]
+    fn cull_removes_idle_over_cap() {
+        let pool = pool_with(&[(100, 50, false); 5]);
+        let mut pool = pool;
+        pool.cull_buffers();
+        let live = pool.slots.iter().filter(|s| s.is_some()).count();
+        assert_eq!(live, MAX_BUFFER_MULTIPLICITY);
+    }
+
+    #[test]
+    fn cull_preserves_busy_buffers() {
+        // 1 busy + 4 idle = 5 live; cull to 3, busy must survive.
+        let mut pool = pool_with(&[
+            (100, 50, true),
+            (100, 50, false),
+            (100, 50, false),
+            (100, 50, false),
+            (100, 50, false),
+        ]);
+        pool.cull_buffers();
+        assert!(pool.slots[0].as_ref().is_some_and(|b| b.busy));
+        let live = pool.slots.iter().filter(|s| s.is_some()).count();
+        assert_eq!(live, MAX_BUFFER_MULTIPLICITY);
+    }
+
+    #[test]
+    fn cull_noop_at_or_under_cap() {
+        let mut pool = pool_with(&[(100, 50, false); 3]);
+        pool.cull_buffers();
+        let live = pool.slots.iter().filter(|s| s.is_some()).count();
+        assert_eq!(live, 3);
     }
 }

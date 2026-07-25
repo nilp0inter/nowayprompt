@@ -264,6 +264,7 @@ name = "nowayprompt"
 version = "0.1.0"
 dependencies = [
  "cosmic-text",
+ "fontdb",
  "libc",
  "memmap2",
  "signal-hook",

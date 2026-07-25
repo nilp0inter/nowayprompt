@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) !void {
     const options = b.addOptions();
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
     const pie = b.option(bool, "pie", "Build with PIE support (by default false)") orelse false;
-    const llvm = !(b.option(bool, "no-llvm", "(expirimental) Use non-LLVM x86 Zig backend") orelse false);
+    const llvm = !(b.option(bool, "no-llvm", "(experimental) Use non-LLVM x86 Zig backend") orelse false);
 
     const scanner = Scanner.create(b, .{});
     scanner.addCustomProtocol("protocol/wlr-layer-shell-unstable-v1.xml");

@@ -488,7 +488,7 @@ const Seat = struct {
                     @as(xkb.State.Component, @enumFromInt(xkb.State.Component.mods_effective)),
                 ) == 1) {
                     switch (@intFromEnum(keysym)) {
-                        xkb.Keysym.BackSpace, xkb.Keysym.w => {
+                        xkb.Keysym.BackSpace, xkb.Keysym.u, xkb.Keysym.w => {
                             if (self.w.mode == .getpin) {
                                 self.w.config.secbuf.reset(self.w.config.alloc) catch self.w.abort(error.OutOfMemory);
                                 self.w.surface.?.render() catch self.w.abort(error.OutOfMemory);

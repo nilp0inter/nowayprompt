@@ -99,7 +99,7 @@ pub fn handleEvent(self: *TTY) !Frontend.Event {
                 ret = .user_notok;
             }
             break;
-        } else if (in.eqlDescription("C-w") or in.eqlDescription("C-backspace")) {
+        } else if (in.eqlDescription("C-u") or in.eqlDescription("C-w") or in.eqlDescription("C-backspace")) {
             if (self.mode == .getpin) {
                 try self.config.secbuf.reset(self.config.alloc);
                 try self.render();

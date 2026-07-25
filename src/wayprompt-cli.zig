@@ -196,7 +196,7 @@ fn parseCmdFlags() !void {
                 \\  --prompt          <string>   Set the prompt. Can only be used with '--get-pin'.
                 \\  --error           <string>   Set the error message.
                 \\  --button-ok       <string>   Display the ok button with the provided Text.
-                \\  --button-no-ok    <string>   Display the not-ok button with the provided Text.
+                \\  --button-not-ok   <string>   Display the not-ok button with the provided Text.
                 \\  --button-cancel   <string>   Display the cancel button with the provided Text.
                 \\  --wayland-display <string>   Set the WAYLAND_DISPLAY to be used.
                 \\  --get-pin                    Query for a password.

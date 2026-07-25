@@ -22,7 +22,7 @@ Read the man pages of the different versions to learn how to set them up.
 
 ## Building
 
-Wayprompt is developed against zig version 0.11.0 and depends on lib-wayland,
+Wayprompt is developed against zig version 0.13.0 and depends on lib-wayland,
 xkbcommon and pixman.
 
 ```sh

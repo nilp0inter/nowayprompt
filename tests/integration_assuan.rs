@@ -25,10 +25,6 @@ impl MockFrontend {
             mode_log: Vec::new(),
         }
     }
-
-    fn set_event(&mut self, event: Event) {
-        self.next_event = Some(event);
-    }
 }
 
 impl Frontend for MockFrontend {

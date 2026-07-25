@@ -972,21 +972,20 @@ impl Dispatch<ZwlrLayerSurfaceV1, ()> for WaylandState {
 
 impl Dispatch<WpFractionalScaleV1, ()> for WaylandState {
     fn event(
-        state: &mut Self,
+        _state: &mut Self,
         _proxy: &WpFractionalScaleV1,
-        event: <WpFractionalScaleV1 as wayland_client::Proxy>::Event,
+        _event: <WpFractionalScaleV1 as wayland_client::Proxy>::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        use wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_v1::Event;
-        // Legacy pins scale to 1 (`Wayland.zig:749` TODO); the fractional
-        // scale protocol reports 120 units per integer step.
-        if let Event::PreferredScale { scale } = event {
-            if let Some(surface) = state.surface.as_mut() {
-                surface.scale = ((f64::from(scale) / 120.0).round() as u32).max(1);
-            }
-        }
+        // Parity `Wayland.zig:749`: legacy pins `scale = 1` (fractional
+        // scale support is an unimplemented TODO there). The SHM buffer is
+        // allocated and rendered at logical size with `set_buffer_scale(1)`,
+        // so honoring `preferred_scale` here would shrink the surface
+        // (compositor treats a logical-size buffer as high-DPI). Ignore the
+        // event; crisp HiDPI rendering would require a physical-size buffer
+        // + scaled drawing and is deferred (design D8 revised).
     }
 }
 

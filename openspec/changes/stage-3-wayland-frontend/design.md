@@ -96,15 +96,15 @@ Reference API manuals (`reference/{wayland,graphics,xkb_input,critic_wayland_gra
 **Alternatives**:
 - System font scan + subpixel AA: matches "default" cosmic-text usage but violates startup latency and AA constraints. Rejected.
 
-### D8: Fractional scaling in-scope (parity with legacy)
+### D8: Fractional-scale binding present, scale pinned to 1 (legacy parity)
 
-**Choice**: Bind `wp_fractional_scale_manager_v1` (from `wayland-protocols` core crate, not `wayland-protocols-wlr`) and honor `preferred_scale` events. Set `wl_surface.set_buffer_scale(1)` per the fractional scaling spec; scale layout dimensions and font metrics by the fractional factor.
+**Choice**: Bind `wp_fractional_scale_manager_v1` (legacy binds it, `Wayland.zig:1699-1735`) and create a `wp_fractional_scale_v1` for the surface, but **pin `scale = 1`** — ignore `preferred_scale` events. The SHM buffer is allocated and rendered at logical size with `set_buffer_scale(1)`.
 
-**Rationale**: Legacy `Wayland.zig:1699-1735` binds it. Parity requires it. Without it, compositors interpolate integer-rendered output on fractional-DPI displays, blurring fonts (critic §1.5). Adds the `wayland-protocols` core crate as a dep.
+**Rationale**: Legacy binds the fractional-scale manager but pins `scale = 1` (`Wayland.zig:749`; fractional-scale support is an unimplemented TODO there). Honoring `preferred_scale` requires a *physical-size* buffer (`width*scale × height*scale`) plus scaled text/vector drawing; rendering a logical-size buffer with `set_buffer_scale(scale>1)` makes the compositor downscale it — the surface and fonts shrink (the bug caught in manual testing). Pinning `scale = 1` matches the legacy exactly and keeps buffer/drawing consistent. The binding is retained for protocol parity; crisp HiDPI rendering is a deferred enhancement.
 
 **Alternatives**:
-- Defer to Stage 4: breaks parity; rejected.
-- Integer scaling only: diverges from legacy; rejected.
+- Honor `preferred_scale` with a physical-size buffer + scaled drawing: crisp on HiDPI, but deviates from the legacy's `scale = 1` and is a larger change. Deferred.
+- Don't bind fractional-scale at all: diverges from the legacy's global binding. Rejected.
 
 ### D9: Test-only `[[bin]]` target, not `main.rs` wiring
 
@@ -116,15 +116,25 @@ Reference API manuals (`reference/{wayland,graphics,xkb_input,critic_wayland_gra
 - `examples/wayland.rs`: less nixosTest-friendly to derive as a package output. Rejected.
 - `#[test]` integration in the VM: awkward to drive a Wayland event loop from a test harness. Rejected.
 
-### D10: Geometry-only nixosTest under headless `cage` + `wtype`
+### D10: Geometry-only nixosTest under headless `sway` + `wtype`
 
-**Choice**: `nixosTests.stage-3-wayland` runs the test binary under `cage` with `WLR_BACKEND=headless`, `WLR_RENDERER=pixman` (software, no GPU), `WLR_LIBINPUT_NO_DEVICES=1`. `wtype` sends synthetic keyboard events (Return, Escape, BackSpace, Unicode). The test binary logs configure serial/dimensions/scale/hotspot rects to stderr; the Python driver greps the log and asserts. No `grim` pixel capture. The harness is reusable by Stage 4 (adds `grim` + swaps in the real pinentry + `main.rs` wiring).
+**Choice**: `nixosTests.stage-3-wayland` runs the test binary under `sway` (started via getty autologin, giving it a real logind session/seat) with `WLR_BACKENDS=drm`, `WLR_RENDERER=pixman` (software, no EGL) and a virtio-gpu device. `wtype` injects synthetic keyboard events (Return, Escape). A wrapper script loops the test binary, logging to a file the test script greps and recording the sway socket path (sway names its socket `wayland-N`). The test asserts configure dimensions, non-zero hotspot geometry, and keyboard `Event` emission. No `grim` pixel capture.
 
-**Rationale**: The render path (`cosmic-text`+`tiny-skia`→SHM→`wl_buffer.commit`) is the highest-risk divergence from legacy. A mock compositor in `cargo test` won't catch wlroots quirks (triple-buffer `wl_buffer.release` timing, fractional-scale, seat rebind). A real-compositor geometry check de-risks Stage 4's wiring. Pixel parity is Stage 4's contract (reframed as tolerance per D1). Pointer/touch click hit-testing is deferred (`wtype` is keyboard-only; pointer needs a virtual input device — Stage 4).
+**Rationale**: The render path (`cosmic-text`+`tiny-skia`→SHM→`wl_buffer.commit`) is the highest-risk divergence from legacy; a real compositor exercises wlroots quirks a mock cannot. `cage` was the original plan but does **not** implement `zwlr_layer_shell_v1` (single-fullscreen kiosk), so `sway` (the reference wlroots compositor, which supports layer-shell) is used instead. `WLR_BACKENDS=drm` (plural — the singular `WLR_BACKEND` is ignored by current wlroots) avoids wlroots' Wayland-backend auto-detection that `WAYLAND_DISPLAY` would otherwise trigger. Pixel parity is Stage 4's contract (reframed as tolerance per D1). Pointer/touch click hit-testing is deferred (`wtype` is keyboard-only — Stage 4).
 
 **Alternatives**:
-- `cargo test` with mock compositor only: misses wlroots quirks. Rejected as sole gate.
+- `cage`: lacks `zwlr_layer_shell_v1`. Rejected.
+- `cargo test` with a mock compositor only: misses wlroots quirks. Rejected as the sole gate.
 - Full `grim` pixel nixosTest now: Stage 4's contract; duplicates infra. Rejected for Stage 3.
+
+### D11: Single-threaded read model (collapse legacy's prepare/read/cancel)
+
+**Choice**: The poll loop drives `flush` (flush outbound), then `poll(stdin, wayland_fd)`; when the wayland fd is readable, `handle_event` does `prepare_read().read()` + `dispatch_pending`; otherwise `no_event` is a no-op. This collapses the legacy's three-step `prepare_read`/`read_events`/`cancel_read` dance.
+
+**Rationale**: Legacy splits prepare/read/cancel to coordinate *multiple threads* reading the socket. A pinentry has exactly one event-loop thread, so the dance is inert. The collapsed model is behaviorally identical for a single-threaded client (events dispatched, outbound flushed, `exit_reason` surfaced) and avoids storing a self-referential `ReadEventsGuard` (which borrows the `Connection`) across the `flush`→`handle_event` poll window. Documented in `mod.rs`.
+
+**Alternatives**:
+- Reproduce the legacy prepare/read/cancel exactly: requires persisting a `ReadEventsGuard` across `flush`→`handle_event`, i.e. self-referential storage. Rejected as needless complexity for a single-threaded client.
 
 ## Risks / Trade-offs
 
@@ -133,7 +143,7 @@ Reference API manuals (`reference/{wayland,graphics,xkb_input,critic_wayland_gra
 | `SIGBUS` on keymap fd truncation voids `SecretBuffer::Drop` → plaintext leak | Security: password leak on compositor bug | D2: match legacy (no guard); record as deferred hardening. Future change adds a `SIGBUS` handler that `zeroize`s the secret. |
 | `xkbcommon` C-dlopen breaks pure-Rust invariant | Build/runtime dep on `libxkbcommon.so` | D3: recorded as the single explicit exception; universally present on Wayland systems. |
 | `cosmic-text` layout metrics differ from `fcft` | Layout box positions not pixel-identical to legacy | D1: behavioral parity only; Stage 4 gate reframed as tolerance. |
-| Headless `cage` in NixOS VM may need undiscovered env vars | nixosTest flaky/unreliable | D10: `WLR_BACKEND=headless`+`WLR_RENDERER=pixman` is the documented headless recipe; verify in the test and adjust. |
+| Headless compositor in the NixOS VM | nixosTest flaky/unreliable | D10: `sway` (not `cage`, which lacks layer-shell) with `WLR_BACKENDS=drm`+`WLR_RENDERER=pixman`+virtio-gpu via getty autologin; `wtype` injects keys. |
 | `wtype` keyboard-only; pointer/touch untested | Hotspot click hit-testing unverified in Stage 3 | D10: defer pointer/touch to Stage 4; keyboard `Event` emission is the Stage 3 gate. |
 | `wayland-client` `Dispatch` model divergence from legacy `setListener` | Subtle event-ordering differences | D4: central `State` + `delegate_dispatch!` reproduces the listener semantics; verify via the nixosTest. |
-| Fractional scaling adds `wayland-protocols` core dep | Build complexity | D8: required for parity; the dep is pure-Rust. |
+| Fractional scaling adds `wayland-protocols` core dep | Build complexity | D8: binding retained for parity; `scale` pinned to 1 (legacy `Wayland.zig:749` TODO); honoring `preferred_scale` deferred. |

@@ -941,8 +941,7 @@ mod tests {
     #[test]
     fn tty_init_no_tty_name() {
         let mut tty = Tty::new();
-        let mut cfg = Config::default();
-        cfg.tty_name = None;
+        let mut cfg = Config::default(); // tty_name defaults to None
         let result = tty.init(&mut cfg);
         assert!(result.is_err());
         match result.unwrap_err() {

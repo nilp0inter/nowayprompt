@@ -90,6 +90,9 @@
                 ./Cargo.toml
                 ./Cargo.lock
                 ./src
+                # Bundled fonts referenced via `include_bytes!` in the
+                # Wayland render pipeline (design D7).
+                ./assets
               ];
             };
             cargoLock.lockFile = ./Cargo.lock;

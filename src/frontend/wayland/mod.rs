@@ -533,18 +533,3 @@ impl Dispatch<WpFractionalScaleManagerV1, ()> for WaylandState {
         // WpFractionalScaleManagerV1 emits no events.
     }
 }
-
-impl Dispatch<WlSeat, ()> for WaylandState {
-    fn event(
-        _state: &mut Self,
-        _proxy: &WlSeat,
-        event: <WlSeat as wayland_client::Proxy>::Event,
-        _: &(),
-        _: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        // Capabilities/name handled in the deep input impl (input.rs adds
-        // keyboard/pointer/touch binding). Foundation ignores.
-        let _ = event;
-    }
-}

@@ -1,44 +1,58 @@
-# wayprompt
+# nowayprompt
 
-![wayprompt](.meta/wayprompt.png)
+`nowayprompt` is a multi-purpose (password-)prompt tool for Wayland, written in Rust.
+It includes a TUI fallback mode for when no Wayland connection can be established (e.g., in a TTY console).
 
-Wayprompt is a multi-purpose (password-)prompt tool for Wayland.
-Also has a TUI fallback mode for when no wayland connection can be established,
-like when invoked while using a TTY.
+Requires a Wayland compositor supporting the layer-shell protocol (`zwlr_layer_shell_v1`).
 
-Requires the compositor to support the layershell.
+---
 
-Wayprompt ships multiple executables:
+## Executables
 
-* `wayprompt`: CLI prompt tool.
-* `pinentry-wayprompt`: drop-in pinentry replacement, for example for gpg.
-* `wayprompt-ssh-askpass`: ssh-askpass implementation, for use with ssh and
-  programs that wrap it, like git and rsync.
+* **`nowayprompt`**: CLI prompt tool.
+* **`pinentry-nowayprompt`** (symlink / drop-in `pinentry-wayprompt`): Pinentry replacement for GPG.
+* **`nowayprompt-ssh-askpass`** (symlink / drop-in `wayprompt-ssh-askpass`): `ssh-askpass` provider for SSH and Git.
 
-All executables use the same configuration file, read `wayprompt.5` for details.
+All executables share the same configuration file syntax (read `reference/security_tty_ipc.md` for `wayprompt.5` format details).
 
-Read the man pages of the different versions to learn how to set them up.
+---
 
+## Architecture & Security
+
+* **Pure-Rust Wayland Backend**: Uses `wayland-client` pure-Rust `rs` socket implementation. Zero dynamic C library dependencies.
+* **Software Text & Graphics Engine**: `cosmic-text` + `tiny-skia` + `fontdb` + `swash` for font fallback, OpenType shaping, and SIMD-accelerated software rendering into `wl_shm` buffers.
+* **Protected Secret Memory**: `mmap(2)` kernel-level page allocations locked via `mlock`, protected with `MADV_DONTDUMP` and `MADV_WIPEONFORK`, and zeroed on drop using `zeroize`.
+* **Zero Async Overhead**: Pure synchronous poll-based REPL and Wayland event dispatch loops.
+
+---
 
 ## Building
 
-Wayprompt is developed against zig version 0.13.0 and depends on lib-wayland,
-xkbcommon and pixman.
-
+### Cargo
 ```sh
-git clone https://git.sr.ht/~leon_plickat/wayprompt
-cd wayprompt
-git submodule update --init
-zig build -Doptimize=ReleaseSafe --prefix ~/.local/ install
+cargo build --release
 ```
 
+### Nix
+```sh
+nix build
+```
 
-## Bug Reports & Contributions
+---
 
-Please send all bug reports and patches to
-[~leon_plickat/public-inbox@lists.sr.ht](mailto:~leon_plickat/public-inbox@lists.sr.ht).
+## Reference & Legacy Code
 
+* Specifications & API Documentation: `reference/`
+  * `reference/wayland.md`
+  * `reference/graphics.md`
+  * `reference/xkb_input.md`
+  * `reference/security_tty_ipc.md`
+  * `reference/critic_security.md`
+  * `reference/critic_wayland_graphics.md`
+* Legacy Zig Codebase: `reference/legacy/`
+
+---
 
 ## License
 
-wayprompt is licensed under the GPLv3.
+`nowayprompt` is licensed under the GNU General Public License v3.0 (GPLv3).

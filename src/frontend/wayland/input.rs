@@ -299,7 +299,13 @@ fn handle_key(state: &mut WaylandState, qh: &QueueHandle<WaylandState>, idx: usi
             keysyms::KEY_BackSpace | keysyms::KEY_u | keysyms::KEY_w
         ) && state.mode == InterfaceMode::GetPin
         {
-            let _ = state.secbuf().reset();
+            // Parity `Wayland.zig:494`: reset failure (OOM) → abort.
+            if state.secbuf().reset().is_err() {
+                state.abort(ExitReason::Error(crate::frontend::FrontendError::Init(
+                    "secret buffer reset failed".into(),
+                )));
+                return;
+            }
             render_surface(state, qh);
         }
         return;

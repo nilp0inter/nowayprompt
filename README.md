@@ -1,39 +1,62 @@
 # nowayprompt
 
-`nowayprompt` is a multi-purpose (password-)prompt tool for Wayland, written in Rust.
-It includes a TUI fallback mode for when no Wayland connection can be established (e.g., in a TTY console).
+<!-- markdownlint-disable MD033 -->
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.png">
+    <img src="assets/logo-light.png" alt="nowayprompt logo" width="640">
+  </picture>
+</p>
+<!-- markdownlint-enable MD033 -->
 
-Requires a Wayland compositor supporting the layer-shell protocol (`zwlr_layer_shell_v1`).
+`nowayprompt` is a small, stubborn Wayland prompt tool written in Rust. It asks
+for passwords without making a scene, then falls back to a TUI when Wayland has
+gone missing—such as in a TTY console.
+
+It needs a compositor with the layer-shell protocol
+(`zwlr_layer_shell_v1`). No layer shell, no tiny prompt stage.
 
 ---
 
 ## Executables
 
-* **`nowayprompt`**: CLI prompt tool.
-* **`pinentry-nowayprompt`** (symlink / drop-in `pinentry-wayprompt`): Pinentry replacement for GPG.
-* **`nowayprompt-ssh-askpass`** (symlink / drop-in `wayprompt-ssh-askpass`): `ssh-askpass` provider for SSH and Git.
+* **`nowayprompt`**: the prompt tool proper.
+* **`pinentry-nowayprompt`** (symlink / drop-in `pinentry-wayprompt`): a GPG
+  Pinentry replacement.
+* **`nowayprompt-ssh-askpass`** (symlink / drop-in
+  `wayprompt-ssh-askpass`): an `ssh-askpass` provider for SSH and Git.
 
-All executables share the same configuration file syntax (read `reference/security_tty_ipc.md` for `wayprompt.5` format details).
+They all speak the same configuration dialect. See
+`reference/security_tty_ipc.md` for the `wayprompt.5` details.
 
 ---
 
 ## Architecture & Security
 
-* **Pure-Rust Wayland Backend**: Uses `wayland-client` pure-Rust `rs` socket implementation. Zero dynamic C library dependencies.
-* **Software Text & Graphics Engine**: `cosmic-text` + `tiny-skia` + `fontdb` + `swash` for font fallback, OpenType shaping, and SIMD-accelerated software rendering into `wl_shm` buffers.
-* **Protected Secret Memory**: `mmap(2)` kernel-level page allocations locked via `mlock`, protected with `MADV_DONTDUMP` and `MADV_WIPEONFORK`, and zeroed on drop using `zeroize`.
-* **Zero Async Overhead**: Pure synchronous poll-based REPL and Wayland event dispatch loops.
+* **Pure-Rust Wayland Backend**: `wayland-client` uses its pure-Rust `rs`
+  socket implementation—no dynamic C library entourage.
+* **Software Text & Graphics Engine**: `cosmic-text`, `tiny-skia`, `fontdb`,
+  and `swash` provide font fallback, OpenType shaping, and SIMD-accelerated
+  software rendering into `wl_shm` buffers.
+* **Protected Secret Memory**: `mmap(2)` pages are locked with `mlock`,
+  excluded from dumps with `MADV_DONTDUMP`, wiped on fork with
+  `MADV_WIPEONFORK`, and zeroed on drop. Secrets get the paranoid treatment.
+* **Zero Async Overhead**: a synchronous, poll-based REPL and Wayland event
+  loop. No runtime is hiding under the rug.
 
 ---
 
 ## Building
 
 ### Cargo
+
 ```sh
 cargo build --release
 ```
 
 ### Nix
+
 ```sh
 nix build
 ```
@@ -42,17 +65,19 @@ nix build
 
 ## Reference & Legacy Code
 
-* Specifications & API Documentation: `reference/`
+* Specifications and API documentation live in `reference/`:
   * `reference/wayland.md`
   * `reference/graphics.md`
   * `reference/xkb_input.md`
   * `reference/security_tty_ipc.md`
   * `reference/critic_security.md`
   * `reference/critic_wayland_graphics.md`
-* Legacy Zig Codebase: `reference/legacy/`
+* The legacy Zig codebase lives in `reference/legacy/`, for archaeology and
+  historical curiosity.
 
 ---
 
 ## License
 
 `nowayprompt` is licensed under the GNU General Public License v3.0 (GPLv3).
+Share it freely; it is already good at asking for things.

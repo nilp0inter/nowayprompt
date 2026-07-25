@@ -8,7 +8,7 @@ keyboard input via wtype. Outputs a JSON report.
 Usage: wayland-driver.py <test-binary> <report-path>
 
 Log format expected from the test binary (stderr):
-  configured: 400x300 scale=1
+  configured: <W>x<H> scale=<S>
   hotspots: [(Ok, x, y, w, h), (Cancel, x, y, w, h)]
   event: UserOk
   event: UserAbort
@@ -23,12 +23,16 @@ import time
 
 LOG_PATH = "/tmp/wayland-test.log"
 WAYLAND_DISPLAY = "wayland-cage"
+# A dedicated runtime dir under /tmp avoids any /run/user ownership/mode
+# constraints wlroots imposes on XDG_RUNTIME_DIR.
+XDG_RUNTIME_DIR = "/tmp/wayland-runtime"
 
 CAGE_ENV = {
     "WLR_BACKEND": "headless",
     "WLR_RENDERER": "pixman",
     "WLR_LIBINPUT_NO_DEVICES": "1",
     "WAYLAND_DISPLAY": WAYLAND_DISPLAY,
+    "XDG_RUNTIME_DIR": XDG_RUNTIME_DIR,
 }
 
 DEFAULT_ARGS = [
@@ -41,6 +45,14 @@ DEFAULT_ARGS = [
 ]
 
 _cage_proc = None
+
+
+def _client_env():
+    """Env for wtype / clients connecting to the cage socket."""
+    env = {**os.environ}
+    env["WAYLAND_DISPLAY"] = WAYLAND_DISPLAY
+    env["XDG_RUNTIME_DIR"] = XDG_RUNTIME_DIR
+    return env
 
 
 def wait_for_log(pattern, timeout=10):
@@ -74,8 +86,16 @@ def wait_for_log(pattern, timeout=10):
 
 def send_key(key):
     """Send a keypress to the cage surface via wtype."""
-    env = {**os.environ, "WAYLAND_DISPLAY": WAYLAND_DISPLAY}
-    subprocess.run(["wtype", "-k", key], check=True, timeout=5, env=env)
+    subprocess.run(["wtype", "-k", key], check=True, timeout=5, env=_client_env())
+
+
+def _dump_log(prefix):
+    """Emit the cage/test log to stdout for diagnostics."""
+    try:
+        with open(LOG_PATH) as f:
+            sys.stdout.write(f"--- {prefix} log ---\n{f.read()}--- end log ---\n")
+    except FileNotFoundError:
+        sys.stdout.write(f"--- {prefix} log (missing) ---\n")
 
 
 def restart_test_binary(binary, args=None):
@@ -99,14 +119,18 @@ def restart_test_binary(binary, args=None):
         pass
 
     cmd = ["cage", "--", binary] + (args if args is not None else DEFAULT_ARGS)
+    # Dedicated runtime dir; wlroots requires 0700.
+    os.makedirs(XDG_RUNTIME_DIR, mode=0o700, exist_ok=True)
+    os.chmod(XDG_RUNTIME_DIR, 0o700)
     env = {**os.environ, **CAGE_ENV}
-    env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
-    # wlroots refuses a non-0700 XDG_RUNTIME_DIR.
-    os.makedirs(env["XDG_RUNTIME_DIR"], mode=0o700, exist_ok=True)
-    os.chmod(env["XDG_RUNTIME_DIR"], 0o700)
 
     log_fh = open(LOG_PATH, "a")
     _cage_proc = subprocess.Popen(cmd, stdout=log_fh, stderr=log_fh, env=env)
+    # Give cage a moment to create the Wayland socket.
+    time.sleep(2.0)
+    if _cage_proc.poll() is not None:
+        # cage exited immediately — surface its error.
+        _dump_log("cage-exited-immediately")
     return _cage_proc
 
 
@@ -185,6 +209,8 @@ def main():
             except subprocess.TimeoutExpired:
                 _cage_proc.kill()
         subprocess.run(["pkill", "-9", "-f", "cage"], capture_output=True)
+        # Surface the final cage log for diagnostics.
+        _dump_log("final")
 
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2)

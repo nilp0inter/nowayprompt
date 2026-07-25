@@ -73,3 +73,7 @@ jobs:
       - name: Run nixosTests (stage-3-tty)
         continue-on-error: true
         run: nix build .#nixosTests.stage-3-tty --print-build-logs
+
+      - name: Run nixosTests (stage-3-wayland)
+        continue-on-error: true
+        run: nix build .#nixosTests.stage-3-wayland --print-build-logs

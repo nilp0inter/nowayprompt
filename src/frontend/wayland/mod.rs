@@ -447,7 +447,7 @@ impl Dispatch<WlCallback, ()> for WaylandState {
         _event: <WlCallback as wayland_client::Proxy>::Event,
         _: &(),
         _: &Connection,
-        _: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
     ) {
         // Sync round-trip complete (parity `Wayland.zig:1743-1761`).
         if state.layer_shell.is_none() || state.compositor.is_none() || state.shm.is_none() {
@@ -457,15 +457,12 @@ impl Dispatch<WlCallback, ()> for WaylandState {
         }
         // The callback is one-shot; clear our handle.
         state.sync = None;
-        // Apply any deferred mode (parity `Wayland.zig:1754-1760`). The
-        // actual surface construction happens on the next enter_mode call
-        // from the frontend drain; here we just record the intent.
+        // Apply any deferred mode (parity `Wayland.zig:1754-1760`).
+        // `sync` was just cleared, so `enter_mode` will not re-defer.
         if let Some(mode) = state.delayed_mode.take() {
-            // Re-enter on the next flush/handle_event cycle. We cannot
-            // borrow the QueueHandle here without it being passed in, so
-            // we stash it back and let the frontend re-drive. For Stage 3
-            // the test binary calls enter_mode after init returns.
-            state.delayed_mode = Some(mode);
+            if let Err(e) = state.enter_mode(qh, mode) {
+                state.abort(ExitReason::Error(e));
+            }
         }
     }
 }

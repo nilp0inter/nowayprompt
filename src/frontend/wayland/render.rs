@@ -992,7 +992,7 @@ impl Dispatch<WpFractionalScaleV1, ()> for WaylandState {
 
 #[cfg(test)]
 mod tests {
-    use super::swap_rb;
+    use super::{swap_rb, HotSpot, HotSpotEffect};
 
     #[test]
     fn swap_rb_converts_rgba_to_bgra() {
@@ -1008,5 +1008,24 @@ mod tests {
                 0xcc, 0xbb, 0xaa, 0xdd, // pixel 1
             ]
         );
+    }
+
+    #[test]
+    fn hotspot_contains_point_inside_and_outside() {
+        let hs = HotSpot {
+            effect: HotSpotEffect::Ok,
+            x: 10,
+            y: 20,
+            width: 30,
+            height: 40,
+        };
+        // Corners inclusive.
+        assert!(hs.contains_point(10, 20));
+        assert!(hs.contains_point(40, 60)); // x+w, y+h
+        assert!(hs.contains_point(25, 40)); // interior
+                                            // Outside.
+        assert!(!hs.contains_point(9, 20));
+        assert!(!hs.contains_point(41, 20));
+        assert!(!hs.contains_point(10, 61));
     }
 }

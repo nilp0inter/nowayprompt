@@ -103,8 +103,15 @@ fn main() {
 
     'outer: loop {
         // Non-blocking flush at loop top (parity with main.rs pattern).
-        if let Some(ev) = frontend.flush().expect("flush") {
-            if is_terminal(ev) {
+        match frontend.flush() {
+            Ok(Some(ev)) => {
+                if is_terminal(ev) {
+                    break 'outer;
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("flush error: {e}");
                 break 'outer;
             }
         }
@@ -122,7 +129,13 @@ fn main() {
 
         // Wayland fd readable.
         if fds[1].revents & libc::POLLIN != 0 {
-            let ev = frontend.handle_event().expect("handle_event");
+            let ev = match frontend.handle_event() {
+                Ok(ev) => ev,
+                Err(e) => {
+                    eprintln!("handle_event error: {e}");
+                    break 'outer;
+                }
+            };
             if is_terminal(ev) {
                 break 'outer;
             }

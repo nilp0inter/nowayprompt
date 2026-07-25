@@ -249,6 +249,9 @@ impl Dispatch<WlKeyboard, usize> for WaylandState {
                     }
                 };
                 state.seats[idx].xkb_state = Some(xkb::State::new(&keymap));
+                if std::env::var_os("NOWAYPROMPT_DEBUG").is_some() {
+                    eprintln!("[input] keymap ready");
+                }
             }
             // Parity `Wayland.zig:475-479`: update modifier mask.
             wl_keyboard::Event::Modifiers {
@@ -291,6 +294,16 @@ fn handle_key(state: &mut WaylandState, qh: &QueueHandle<WaylandState>, idx: usi
         .as_ref()
         .map(|xs| xs.mod_name_is_active(xkb::MOD_NAME_CTRL, xkb::STATE_MODS_EFFECTIVE))
         .unwrap_or(false);
+
+    if std::env::var_os("NOWAYPROMPT_DEBUG").is_some() {
+        eprintln!(
+            "[input] key={} keycode={} keysym={:#x} ctrl={}",
+            key,
+            keycode.raw(),
+            keysym,
+            ctrl
+        );
+    }
 
     if ctrl {
         // Ctrl+BackSpace / Ctrl+u / Ctrl+w → reset pin (parity 490-498).

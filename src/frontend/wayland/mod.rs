@@ -442,7 +442,7 @@ impl Dispatch<WlRegistry, ()> for WaylandState {
                     state.shm = Some(registry.bind::<WlShm, _, _>(name, version.min(1), qh, ()));
                 } else if interface == WlSeat::interface().name {
                     let wl_seat: WlSeat =
-                        registry.bind::<WlSeat, _, _>(name, version.min(1), qh, ());
+                        registry.bind::<WlSeat, _, _>(name, version.min(8), qh, ());
                     state.seats.push(Seat::new(wl_seat));
                 }
             }

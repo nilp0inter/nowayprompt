@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: fmt · clippy · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
+        with:
+          flakehub-cache: true
+
+      - name: Format check
+        run: nix develop --command cargo fmt -- --check
+
+      - name: Clippy
+        run: nix develop --command cargo clippy -- -D warnings
+
+      - name: Test
+        run: nix develop --command cargo test
+
+      - name: Build
+        run: nix develop --command cargo build --release

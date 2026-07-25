@@ -1,0 +1,44 @@
+name: Update flake inputs
+
+on:
+  schedule:
+    # Run weekly on Sunday at 04:00 UTC.
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  update:
+    name: Update flake.lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
+        with:
+          flakehub-cache: true
+
+      - name: Update flake inputs
+        run: nix flake update --commit-lock-file
+
+      - name: Verify build
+        run: nix develop --command cargo build --release
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          title: "chore: update flake.lock"
+          body: |
+            Automated weekly update of flake inputs.
+
+            Build verified: `nix develop --command cargo build --release` passes.
+          branch: flake-update
+          delete-branch: true
+          labels: dependencies, nix
+          commit-message: "chore: update flake.lock"

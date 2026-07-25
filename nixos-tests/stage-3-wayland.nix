@@ -98,6 +98,7 @@ in
   testScript =
     ''
       import re
+      import time
 
       def wtype(key):
           # The runner records sway's actual socket path (absolute) in
@@ -147,9 +148,10 @@ in
       # Wait for the runner to record the sway socket path.
       machine.wait_for_file("/tmp/wayland-socket")
 
-      # Wait until the surface has received its keymap (keyboard ready)
-      # before injecting keys, else the key is lost.
-      machine.wait_until_succeeds("grep -q 'keymap ready' /tmp/wayland-test.log", timeout=10)
+      # Give the surface time to gain keyboard focus + keymap before
+      # injecting keys (a fixed delay is more robust than gating on the
+      # debug-only "keymap ready" log line).
+      time.sleep(2)
       wtype("Return")
       try:
           machine.wait_until_succeeds("grep 'event: UserOk' /tmp/wayland-test.log", timeout=10)
@@ -168,11 +170,8 @@ in
           "test $(grep -c -E 'configured: [0-9]+x[0-9]+ scale=[0-9]+' /tmp/wayland-test.log) -ge 2",
           timeout=30,
       )
-      # Wait for the restarted binary's keymap before sending Escape.
-      machine.wait_until_succeeds(
-          "test $(grep -c 'keymap ready' /tmp/wayland-test.log) -ge 2",
-          timeout=10,
-      )
+      # Give the restarted binary time to re-acquire keyboard focus.
+      time.sleep(2)
       wtype("Escape")
       machine.wait_until_succeeds("grep 'event: UserAbort' /tmp/wayland-test.log", timeout=10)
       print("Escape -> UserAbort: OK")

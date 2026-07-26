@@ -44,6 +44,48 @@ sections. General settings configure Wayland geometry and fonts. Colours use
 0xRRGGBB or 0xRRGGBBAA values. Runtime labels, TTY names, and Wayland display
 selection are supplied by the invoking command or Assuan protocol and are not
 configuration-file keys.
+.SH VARIABLES
+Keys are hyphenated; underscore spellings (e.g.
+.BR font_regular )
+are unknown variables and make the file fail to parse. Values may be
+wrapped in one pair of matching single or double quotes, which are
+stripped along with the trailing semicolon.
+.SS [general]
+Integer (u16) settings, with wayprompt(5) defaults:
+.BR vertical-padding " (10),"
+.BR horizontal-padding " (15),"
+.BR button-inner-padding " (5),"
+.BR pin-square-size " (18),"
+.BR pin-square-border " (1),"
+.BR button-border " (1),"
+.BR border " (2),"
+.BR corner-radius " (10),"
+.BR pin-square-amount " (16)."
+.P
+.B font-regular
+and
+.B font-large
+(defaults
+.BR "sans:size=14" ,
+.BR "sans:size=20" )
+take font descriptions: fcft/fontconfig-style patterns
+.IR family [: attr = value ...].
+The interpreted attribute is
+.B size
+(pixel size); unknown attributes are ignored.
+.B font-regular
+drives the description, error message and button labels;
+.B font-large
+drives title and prompt. Unresolved families fall back to the default
+sans-serif and the bundled DejaVu Sans faces.
+.SS [colours]
+0xRRGGBB or 0xRRGGBBAA values:
+.BR background ", " border ", " text ", " error-text ", "
+.BR pin-background ", " pin-border ", " pin-square ", "
+.BR ok-button ", " ok-button-border ", " ok-button-text ", "
+.BR not-ok-button ", " not-ok-button-border ", " not-ok-button-text ", "
+.BR cancel-button ", " cancel-button-border ", " cancel-button-text .
+.P
 .SH SEE ALSO
 .BR nowayprompt (1),
 .BR pinentry-nowayprompt (1),

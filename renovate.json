@@ -50,8 +50,10 @@
     },
     {
       "description": "Pin Determinate Systems actions to major version",
-      "matchPackagePatterns": ["^DeterminateSystems/"],
-      "pinDigests": false
+      "pinDigests": false,
+      "matchPackageNames": [
+        "/^DeterminateSystems//"
+      ]
     }
   ]
 }

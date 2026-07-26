@@ -658,9 +658,15 @@ impl Frontend for Tty {
         }
 
         if mode == InterfaceMode::None {
+            let was_active = self.mode != InterfaceMode::None;
             // Leave raw mode: drop RawTty (restores cooked termios).
             self.raw = None;
             self.mode = InterfaceMode::None;
+            if was_active {
+                if let Some(fd) = self.fd {
+                    let _ = self.write_output(fd, b"\r\n");
+                }
+            }
             return Ok(());
         }
 
@@ -956,5 +962,30 @@ mod tests {
     fn tty_no_event_ok() {
         let mut tty = Tty::new();
         assert!(tty.no_event().is_ok());
+    }
+
+    #[test]
+    fn tty_exit_mode_writes_newline() {
+        let mut fds = [0; 2];
+        let rc = unsafe { libc::pipe(fds.as_mut_ptr()) };
+        assert_eq!(rc, 0);
+
+        let mut tty = Tty::new();
+        tty.fd = Some(fds[1]);
+        tty.mode = InterfaceMode::GetPin;
+
+        let result = tty.enter_mode(InterfaceMode::None);
+        assert!(result.is_ok());
+        assert_eq!(tty.mode, InterfaceMode::None);
+
+        let mut buf = [0u8; 8];
+        let n = unsafe { libc::read(fds[0], buf.as_mut_ptr().cast(), buf.len()) };
+        assert_eq!(n, 2);
+        assert_eq!(&buf[..2], b"\r\n");
+
+        unsafe {
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+        }
     }
 }

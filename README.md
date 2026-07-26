@@ -1,18 +1,17 @@
-<!-- markdownlint-disable MD041 -->
-[![CI](https://github.com/nilp0inter/nowayprompt/actions/workflows/ci.yml/badge.svg)](https://github.com/nilp0inter/nowayprompt/actions/workflows/ci.yml)
-[![Renovate](https://github.com/nilp0inter/nowayprompt/actions/workflows/renovate.yml/badge.svg)](https://github.com/nilp0inter/nowayprompt/actions/workflows/renovate.yml)
-[![Nix](https://github.com/nilp0inter/nowayprompt/actions/workflows/flake-update.yml/badge.svg)](https://github.com/nilp0inter/nowayprompt/actions/workflows/flake-update.yml)
-![Zig content: 0%](https://img.shields.io/badge/Zig_content-0%25-brightgreen?logo=zig)
-<!-- markdownlint-enable MD041 -->
-<!-- markdownlint-disable MD033 -->
+<!-- markdownlint-disable MD013 MD033 MD041 -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.png">
     <img src="assets/logo-light.png" alt="nowayprompt logo" width="640">
   </picture>
+  <br>
+  <a href="https://github.com/nilp0inter/nowayprompt/actions/workflows/ci.yml"><img src="https://github.com/nilp0inter/nowayprompt/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/nilp0inter/nowayprompt/actions/workflows/renovate.yml"><img src="https://github.com/nilp0inter/nowayprompt/actions/workflows/renovate.yml/badge.svg" alt="Renovate"></a>
+  <a href="https://nixos.org/"><img src="https://img.shields.io/badge/Built_with-Nix-5277C3?logo=nixos&logoColor=white" alt="Built with Nix"></a>
+  <img src="https://img.shields.io/badge/Zig_content-0%25-brightgreen?logo=zig" alt="Zig content: 0%">
 </p>
-<!-- markdownlint-enable MD033 -->
+<!-- markdownlint-enable MD013 MD033 MD041 -->
 
 `nowayprompt` is a small, stubborn Wayland prompt tool written in Rust. It asks
 for passwords without making a scene, then falls back to a TUI when Wayland has

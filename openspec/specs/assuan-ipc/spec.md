@@ -6,11 +6,11 @@ Defines the synchronous Assuan pinentry protocol and command state machine.
 
 ### Requirement: Assuan wire framing and greeting
 
-The Assuan IPC handler MUST run a synchronous line-framed REPL over stdin/stdout. On startup, it MUST emit the greeting `OK wayprompt is pleased to meet you\n` and flush before reading any command. All frames are terminated by `\n`. The handler MUST NOT use async runtimes.
+The Assuan IPC handler MUST run a synchronous line-framed REPL over stdin/stdout. On startup, it MUST emit the greeting `OK nowayprompt is pleased to meet you\n` and flush before reading any command. All frames are terminated by `\n`. The handler MUST NOT use async runtimes.
 
 #### Scenario: Startup greeting
 - **WHEN** the pinentry process starts
-- **THEN** stdout receives `OK wayprompt is pleased to meet you\n` and is flushed before the first command is read
+- **THEN** stdout receives `OK nowayprompt is pleased to meet you\n` and is flushed before the first command is read
 
 #### Scenario: Synchronous REPL
 - **WHEN** a command line is read from stdin

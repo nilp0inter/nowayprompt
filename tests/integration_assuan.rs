@@ -64,7 +64,7 @@ fn greeting_on_new() {
     let (mut repl, _) = make_repl();
     assert_eq!(
         repl.get_writer().as_slice(),
-        b"OK wayprompt is pleased to meet you\n"
+        b"OK nowayprompt is pleased to meet you\n"
     );
 }
 
@@ -86,7 +86,7 @@ fn settitle_setprompt_setdesc_then_getpin_enters_getpin_mode() {
     // Three OK responses for SETTITLE/SETPROMPT/SETDESC.
     let out = repl.get_writer().as_slice();
     assert_eq!(
-        &out[b"OK wayprompt is pleased to meet you\n".len()..],
+        &out[b"OK nowayprompt is pleased to meet you\n".len()..],
         b"OK\nOK\nOK\n"
     );
     // Frontend entered GetPin mode.
@@ -199,7 +199,7 @@ fn setkeyinfo_silently_accepted() {
     let out = repl.get_writer().as_slice();
     // After greeting, SETKEYINFO → OK\n.
     assert_eq!(
-        &out[b"OK wayprompt is pleased to meet you\n".len()..],
+        &out[b"OK nowayprompt is pleased to meet you\n".len()..],
         b"OK\n"
     );
 }

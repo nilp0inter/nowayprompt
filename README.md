@@ -1,3 +1,9 @@
+<!-- markdownlint-disable MD041 -->
+[![CI](https://github.com/nilp0inter/nowayprompt/actions/workflows/ci.yml/badge.svg)](https://github.com/nilp0inter/nowayprompt/actions/workflows/ci.yml)
+[![Renovate](https://github.com/nilp0inter/nowayprompt/actions/workflows/renovate.yml/badge.svg)](https://github.com/nilp0inter/nowayprompt/actions/workflows/renovate.yml)
+[![Nix](https://github.com/nilp0inter/nowayprompt/actions/workflows/flake-update.yml/badge.svg)](https://github.com/nilp0inter/nowayprompt/actions/workflows/flake-update.yml)
+![Zig content: 0%](https://img.shields.io/badge/Zig_content-0%25-brightgreen?logo=zig)
+<!-- markdownlint-enable MD041 -->
 <!-- markdownlint-disable MD033 -->
 <p align="center">
   <picture>

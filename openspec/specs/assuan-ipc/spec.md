@@ -104,11 +104,11 @@ The `D <secret>` output MUST NOT copy the secret into a `String` or `Vec` on the
 
 ### Requirement: GETINFO command
 
-`GETINFO <sub>` MUST respond based on the subcommand (matched case-insensitively): `flavor` → `D wayprompt\nEND\n` then `OK\n`; `version` → `D 0.0.0\nEND\n` then `OK\n`; `pid` → `D <pid>\nEND\n` then `OK\n` where `<pid>` is `std::process::id()`; any other or missing subcommand → `OK\n` only.
+`GETINFO <sub>` MUST respond based on the subcommand (matched case-insensitively): `flavor` → `D nowayprompt\nEND\n` then `OK\n`; `version` → `D 0.0.0\nEND\n` then `OK\n`; `pid` → `D <pid>\nEND\n` then `OK\n` where `<pid>` is `std::process::id()`; any other or missing subcommand → `OK\n` only.
 
 #### Scenario: GETINFO flavor
 - **WHEN** `GETINFO flavor\n` is received
-- **THEN** stdout emits `D wayprompt\nEND\nOK\n`
+- **THEN** stdout emits `D nowayprompt\nEND\nOK\n`
 
 #### Scenario: GETINFO pid
 - **WHEN** `GETINFO pid\n` is received

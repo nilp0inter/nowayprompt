@@ -281,7 +281,7 @@ impl<W: Write> AssuanRepl<W> {
                 let sub_upper = sub.to_ascii_uppercase();
                 match sub_upper.as_str() {
                     "FLAVOR" => {
-                        self.writer.write_all(b"D wayprompt\nEND\n")?;
+                        self.writer.write_all(b"D nowayprompt\nEND\n")?;
                     }
                     "VERSION" => {
                         self.writer.write_all(b"D 0.0.0\nEND\n")?;
@@ -591,7 +591,7 @@ mod tests {
         let mut secbuf = SecretBuffer::new().unwrap();
         let mut fe = MockFrontend::new();
         handle(&mut repl, &mut cfg, &mut secbuf, &mut fe, "GETINFO flavor");
-        assert_eq!(repl.output(), b"D wayprompt\nEND\nOK\n");
+        assert_eq!(repl.output(), b"D nowayprompt\nEND\nOK\n");
     }
 
     #[test]

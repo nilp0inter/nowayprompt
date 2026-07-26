@@ -240,7 +240,7 @@ fn getinfo_flavor_version_pid() {
     repl.handle_line(&mut cfg, &mut secbuf, &mut frontend, "GETINFO flavor")
         .unwrap();
     let out = repl.get_writer().as_slice();
-    assert!(out.ends_with(b"D wayprompt\nEND\nOK\n"));
+    assert!(out.ends_with(b"D nowayprompt\nEND\nOK\n"));
 
     // Reset for next command.
     repl.get_writer().clear();

@@ -44,7 +44,7 @@ in
         "SETNOTOK Not_OK": ["OK"],
         "SETCANCEL Cancel": ["OK"],
         "NOP": ["OK"],
-        "GETINFO flavor": ["D wayprompt", "END", "OK"],
+        "GETINFO flavor": ["D nowayprompt", "END", "OK"],
         "GETPIN<resp>": ["D hunter2", "END", "OK"],
         "CONFIRM<resp>": ["OK"],
         "RESET": ["OK"],

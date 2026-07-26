@@ -45,7 +45,7 @@ impl Buffer {
 
         // memfd_create with MFD_CLOEXEC.
         let fd: OwnedFd = unsafe {
-            let raw = libc::memfd_create(c"/wayprompt".as_ptr(), libc::MFD_CLOEXEC);
+            let raw = libc::memfd_create(c"/nowayprompt".as_ptr(), libc::MFD_CLOEXEC);
             if raw < 0 {
                 return Err(std::io::Error::last_os_error());
             }

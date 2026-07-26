@@ -113,12 +113,12 @@ impl TextView {
             font_system,
             Metrics::new(font_size, (font_size * 1.2).round()),
         );
-        buffer.set_size(font_system, None, None);
+        buffer.set_size(None, None);
         let mut attrs = Attrs::new().family(Family::SansSerif);
         if font_size > FONT_SIZE_REGULAR {
             attrs = attrs.weight(Weight::BOLD);
         }
-        buffer.set_text(font_system, text, attrs, Shaping::Advanced);
+        buffer.set_text(text, &attrs, Shaping::Advanced, None);
         buffer.shape_until_scroll(font_system, false);
 
         let mut width = 0.0f32;

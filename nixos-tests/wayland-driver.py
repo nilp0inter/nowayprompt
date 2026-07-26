@@ -27,13 +27,15 @@ def require(condition, message):
 
 def wait_for_layer_surface(process, label):
     deadline = time.monotonic() + 20
+    log = []
     saw_layer_surface = False
     while time.monotonic() < deadline:
         line = process.stderr.readline()
         if line:
+            log.append(line)
             saw_layer_surface |= "get_layer_surface" in line
             if saw_layer_surface and ".attach(" in line:
-                return
+                return log
         elif process.poll() is not None:
             break
     raise RuntimeError(f"{label} never rendered a layer surface; rc={process.poll()}")
@@ -105,6 +107,36 @@ def run_public(binary, label, text, key, expected_status):
     return output, frame_geometry(image), stderr
 
 
+def verify_pinentry_namespace():
+    env = os.environ | {
+        "XDG_RUNTIME_DIR": RUNTIME,
+        "WAYLAND_DISPLAY": DISPLAY,
+        "WAYLAND_DEBUG": "1",
+    }
+    pinentry = str(Path(TARGET).with_name("pinentry-nowayprompt"))
+    process = subprocess.Popen(
+        [pinentry],
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        process.stdin.write("GETPIN\n")
+        process.stdin.flush()
+        log = wait_for_layer_surface(process, "pinentry")
+        layer_request = next(line for line in log if "get_layer_surface" in line)
+        require(
+            '"nowayprompt"' in layer_request,
+            f"pinentry used the wrong layer-shell namespace: {layer_request!r}",
+        )
+        return layer_request.strip()
+    finally:
+        process.terminate()
+        process.communicate(timeout=10)
+
+
 def run_geometry_probe():
     env = os.environ | {"XDG_RUNTIME_DIR": RUNTIME, "WAYLAND_DISPLAY": DISPLAY}
     process = subprocess.Popen(
@@ -135,6 +167,7 @@ def run_geometry_probe():
 
 def main():
     configured = run_geometry_probe()
+    pinentry_request = verify_pinentry_namespace()
     target_ok, target_frame, _ = run_public(
         TARGET, "target-ok", SECRET, ["28:1", "28:0"], 0
     )
@@ -159,7 +192,10 @@ def main():
             "cancelled target emitted unexpected output")
     require(all(abs(a - b) <= 2 for a, b in zip(target_frame, oracle_frame)),
             f"frame geometry diverged: target={target_frame}, oracle={oracle_frame}")
-    print(f"Wayland parity OK: {configured}; frame={target_frame}")
+    print(
+        f"Wayland parity OK: {configured}; frame={target_frame}; "
+        f"pinentry={pinentry_request}"
+    )
 
 
 if __name__ == "__main__":

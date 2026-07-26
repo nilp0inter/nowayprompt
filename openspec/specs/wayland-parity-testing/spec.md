@@ -22,8 +22,12 @@ The `Cargo.toml` MUST define a second `[[bin]]` target `nowayprompt-wayland-test
 
 ### Requirement: Automated compositor test
 
-The repository MUST provide a deterministic automated compositor gate for the reachable layer-shell prompt. The gate MUST use a compositor that implements `zwlr_layer_shell_v1`, retain the virtual keyboard through delivery of the input assertion, and wait on explicit client readiness rather than fixed sleeps. It MUST compare the target and the pinned `pkgs.wayprompt` oracle for successful secret input, cancellation, configured geometry, and observable configured surface behavior. `cage` MUST NOT be used because it lacks `zwlr_layer_shell_v1`; a one-shot `wtype` client under headless Sway MUST NOT be the sole input mechanism because its device lifetime is racy.
+The repository MUST provide a deterministic automated compositor gate for the reachable layer-shell prompt. The gate MUST use a compositor that implements `zwlr_layer_shell_v1`, retain the virtual keyboard through delivery of the input assertion, and wait on explicit client readiness rather than fixed sleeps. It MUST compare the target and the pinned `pkgs.wayprompt` oracle for successful secret input, cancellation, configured geometry, and observable configured surface behavior. It MUST start the installed `pinentry-nowayprompt` alias with `GETPIN` and verify that its `get_layer_surface` request names the `nowayprompt` namespace. `cage` MUST NOT be used because it lacks `zwlr_layer_shell_v1`; a one-shot `wtype` client under headless Sway MUST NOT be the sole input mechanism because its device lifetime is racy.
 
 #### Scenario: deterministic Wayland gate
 - **WHEN** the registered Wayland parity derivation runs
 - **THEN** both target and oracle complete the same prompt scenarios without input-delivery races and the driver reports parity results
+
+#### Scenario: pinentry namespace
+- **WHEN** `pinentry-nowayprompt` receives `GETPIN` under the compositor gate
+- **THEN** its `get_layer_surface` request uses namespace `nowayprompt`

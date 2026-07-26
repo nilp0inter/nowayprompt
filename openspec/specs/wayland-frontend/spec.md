@@ -54,7 +54,7 @@ The `Wayland` struct MUST bind registry globals in its `Dispatch<WlRegistry, ()>
 
 ### Requirement: Layer-shell surface lifecycle
 
-The `Surface` MUST be created via `zwlr_layer_shell_v1.get_layer_surface` with `Layer::Overlay`, anchored on all edges, with keyboard interactivity set to exclusive. It MUST acknowledge the `configure` event with the same serial before committing. `calculate_size` MUST compute width/height from the TextViews and UI config. Multi-output Enter/Leave MUST be tracked. `set_buffer_scale` MUST be set per the fractional scale.
+The `Surface` MUST be created via `zwlr_layer_shell_v1.get_layer_surface` with `Layer::Overlay`, namespace `nowayprompt`, anchored on all edges, with keyboard interactivity set to exclusive. It MUST acknowledge the `configure` event with the same serial before committing. `calculate_size` MUST compute width/height from the TextViews and UI config. Multi-output Enter/Leave MUST be tracked. `set_buffer_scale` MUST be set per the fractional scale.
 
 #### Scenario: configure serial acknowledged
 - **WHEN** the compositor sends a `configure` event with serial N and dimensions WxH

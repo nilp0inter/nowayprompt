@@ -493,7 +493,7 @@ impl Surface {
             &wl_surface,
             None,
             Layer::Overlay,
-            "wayprompt".to_string(),
+            "nowayprompt".to_string(),
             qh,
             (),
         );

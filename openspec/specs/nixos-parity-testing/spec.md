@@ -118,7 +118,7 @@ The `nixosTests` flake output MUST expose and register a Wayland differential te
 ### Requirement: Byte-tolerance contract for differential comparison
 
 Differential byte comparison MUST account for known-allowed divergences between oracle and target, documented explicitly in the test. Allowed divergences:
-- **Greeting wording**: the oracle emits `OK wayprompt is pleased to meet you`; the target emits `OK wayprompt is pleased to meet you` (intentional identical string — if the target wording diverges, the test MUST assert the `OK ` prefix and that the line is non-empty, not the exact suffix).
+- **Greeting wording**: the oracle emits `OK wayprompt is pleased to meet you`; the target emits `OK nowayprompt is pleased to meet you` to reflect the fork's identity. The test MUST assert the `OK ` prefix and that the line is non-empty, not compare the suffix byte-for-byte.
 - **`GETINFO version`**: the oracle emits `0.0.0`; the target may differ if the project versions independently — assert format `D X.Y.Z\nEND\nOK\n`, not the exact version.
 - **`GETINFO pid`**: always excluded from byte comparison (process-specific).
 - **`GETINFO flavor`**: MUST be byte-identical (`D wayprompt\nEND\nOK\n`) if the target preserves the oracle's flavor string, OR the test MUST assert the target's flavor string matches its own identity (the target emits `D wayprompt\nEND\nOK\n` for oracle parity; the test asserts byte-identical).
@@ -127,8 +127,8 @@ Differential byte comparison MUST account for known-allowed divergences between 
 Anything not in the allowed-divergence list MUST be byte-identical between oracle and target.
 
 #### Scenario: Greeting tolerance
-- **WHEN** the oracle emits `OK wayprompt is pleased to meet you\n` and the target emits `OK wayprompt is pleased to meet you\n`
-- **THEN** the comparison passes (identical); if the target wording diverges, the comparison asserts `OK ` prefix + non-empty suffix only
+- **WHEN** the oracle emits `OK wayprompt is pleased to meet you\n` and the target emits `OK nowayprompt is pleased to meet you\n`
+- **THEN** the comparison passes by asserting the `OK ` prefix and a non-empty suffix for each greeting
 
 #### Scenario: Error code byte-identical
 - **WHEN** both binaries receive an unknown command

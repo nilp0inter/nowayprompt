@@ -118,7 +118,7 @@ pub struct AssuanRepl<W: Write> {
 impl<W: Write> AssuanRepl<W> {
     /// Create a new REPL, emitting the Assuan greeting and flushing.
     pub fn new(mut writer: W) -> io::Result<Self> {
-        writer.write_all(b"OK wayprompt is pleased to meet you\n")?;
+        writer.write_all(b"OK nowayprompt is pleased to meet you\n")?;
         writer.flush()?;
         Ok(Self {
             writer,
@@ -570,7 +570,7 @@ mod tests {
     #[test]
     fn repl_greeting() {
         let repl = make_repl();
-        assert_eq!(repl.output(), b"OK wayprompt is pleased to meet you\n");
+        assert_eq!(repl.output(), b"OK nowayprompt is pleased to meet you\n");
     }
 
     #[test]

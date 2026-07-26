@@ -1,4 +1,4 @@
-//! Seat input: keyboard (XKB), pointer, touch (parity `Wayland.zig:219-633`).
+//! Seat input: keyboard (XKB), pointer, touch.
 //!
 //! `WaylandState` is the dispatch `State`; each seat's devices are bound
 //! with the seat's index as user-data so events route to the right `Seat`.
@@ -22,14 +22,14 @@ use crate::frontend::{FrontendError, InterfaceMode};
 use super::render::{render_surface, HotSpot};
 use super::{ExitReason, WaylandState};
 
-/// A tracked touch point (parity `Wayland.zig:220-223`).
+/// A tracked touch point.
 #[derive(Debug, Clone, Copy)]
 struct TouchPoint {
     id: i32,
     hotspot: HotSpot,
 }
 
-/// A Wayland seat. Parity with `Wayland.zig:219-633`.
+/// A Wayland seat.
 pub struct Seat {
     pub wl_seat: WlSeat,
     keyboard: Option<WlKeyboard>,
@@ -46,8 +46,7 @@ pub struct Seat {
 }
 
 impl Seat {
-    /// Bind a new seat (parity `Wayland.zig:248-251`). Device binding
-    /// happens on the `capabilities` event.
+    /// Bind a new seat. Device binding happens on the `capabilities` event.
     pub fn new(wl_seat: WlSeat) -> Self {
         Self {
             wl_seat,
@@ -207,8 +206,8 @@ impl Dispatch<WlKeyboard, usize> for WaylandState {
             return;
         }
         match event {
-            // Parity `Wayland.zig:445-474`: mmap the keymap fd MAP_PRIVATE
-            // read-only, compile via xkb, create state. No SIGBUS guard (D2).
+            // mmap the keymap fd MAP_PRIVATE read-only, compile via xkb,
+            // create state. No SIGBUS guard.
             wl_keyboard::Event::Keymap { format, fd, size } => {
                 if !matches!(format, WEnum::Value(wl_keyboard::KeymapFormat::XkbV1)) {
                     state.abort(ExitReason::Error(FrontendError::Init(
@@ -253,7 +252,7 @@ impl Dispatch<WlKeyboard, usize> for WaylandState {
                     eprintln!("[input] keymap ready");
                 }
             }
-            // Parity `Wayland.zig:475-479`: update modifier mask.
+            // Update the modifier mask.
             wl_keyboard::Event::Modifiers {
                 mods_depressed,
                 mods_latched,
@@ -265,7 +264,7 @@ impl Dispatch<WlKeyboard, usize> for WaylandState {
                     xs.update_mask(mods_depressed, mods_latched, mods_locked, 0, 0, group);
                 }
             }
-            // Parity `Wayland.zig:480-528`: key dispatch.
+            // Key dispatch.
             wl_keyboard::Event::Key { key, state: ks, .. } => {
                 if !matches!(ks, WEnum::Value(wl_keyboard::KeyState::Pressed)) {
                     return;
@@ -277,7 +276,7 @@ impl Dispatch<WlKeyboard, usize> for WaylandState {
     }
 }
 
-/// Key dispatch (parity `Wayland.zig:480-528`).
+/// Key dispatch.
 fn handle_key(state: &mut WaylandState, qh: &QueueHandle<WaylandState>, idx: usize, key: u32) {
     // Wayland evdev keycodes are offset by 8 from xkb keycodes.
     let keycode = xkb::Keycode::new(key + 8);
@@ -306,13 +305,13 @@ fn handle_key(state: &mut WaylandState, qh: &QueueHandle<WaylandState>, idx: usi
     }
 
     if ctrl {
-        // Ctrl+BackSpace / Ctrl+u / Ctrl+w → reset pin (parity 490-498).
+        // Ctrl+BackSpace / Ctrl+u / Ctrl+w → reset pin.
         if matches!(
             keysym,
             keysyms::KEY_BackSpace | keysyms::KEY_u | keysyms::KEY_w
         ) && state.mode == InterfaceMode::GetPin
         {
-            // Parity `Wayland.zig:494`: reset failure (OOM) → abort.
+            // Reset failure (OOM) → abort.
             if state.secbuf().reset().is_err() {
                 state.abort(ExitReason::Error(crate::frontend::FrontendError::Init(
                     "secret buffer reset failed".into(),
@@ -348,7 +347,7 @@ fn handle_key(state: &mut WaylandState, qh: &QueueHandle<WaylandState>, idx: usi
         return;
     }
 
-    // Append the key's UTF-8 to the pin buffer (parity 522-524).
+    // Append the key's UTF-8 to the pin buffer.
     if let Some(xs) = state.seats[idx].xkb_state.as_ref() {
         let utf8 = xs.key_get_utf8(keycode);
         if !utf8.is_empty() {
@@ -373,7 +372,7 @@ impl Dispatch<WlPointer, usize> for WaylandState {
         if idx >= state.seats.len() {
             return;
         }
-        // Ignore pointer events after the surface is gone (parity 318-319).
+        // Ignore pointer events after the surface is gone.
         if state.surface.is_none() {
             return;
         }
@@ -394,7 +393,7 @@ impl Dispatch<WlPointer, usize> for WaylandState {
             } => {
                 update_pointer(state, idx, surface_x, surface_y, None);
             }
-            // Activate on release for better UX (parity 326-339).
+            // Activate on release for better UX.
             // BTN_LEFT = 0x110.
             wl_pointer::Event::Button {
                 button, state: bs, ..
@@ -435,7 +434,7 @@ impl Dispatch<WlPointer, usize> for WaylandState {
     }
 }
 
-/// Update pointer position + cursor shape (parity `Wayland.zig:345-365`).
+/// Update pointer position + cursor shape.
 fn update_pointer(state: &mut WaylandState, idx: usize, x: f64, y: f64, serial: Option<u32>) {
     state.seats[idx].pointer_x = if x > 0.0 { x as u32 } else { 0 };
     state.seats[idx].pointer_y = if y > 0.0 { y as u32 } else { 0 };
@@ -472,7 +471,7 @@ impl Dispatch<WlTouch, usize> for WaylandState {
             return;
         }
         match event {
-            // Activate on touch-up (parity 565-591).
+            // Activate on touch-up.
             wl_touch::Event::Down { id, x, y, .. } => {
                 let (x, y) = (clamp24(x), clamp24(y));
                 let hotspot = match state

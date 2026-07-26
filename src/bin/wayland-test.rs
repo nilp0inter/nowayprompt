@@ -1,7 +1,8 @@
-//! Stage 3 Wayland frontend test binary.
+//! Test-only Wayland geometry utility binary.
 //!
-//! Drives the Wayland frontend directly for the nixosTest geometry parity
-//! harness (`nixos-tests/stage-3-wayland.nix`). Parses label CLI args,
+//! Drives the Wayland frontend directly for the Wayland differential parity
+//! nixosTest gate, which compares the in-tree build against the pinned
+//! `pkgs.wayprompt` oracle. Parses label CLI args,
 //! enters GetPin mode, polls stdin + the Wayland fd for events, and reports
 //! the *real* configured surface geometry + hotspots (read back from the
 //! frontend once the first configure event renders the surface).

@@ -7,7 +7,7 @@
   </picture>
   <br>
   <a href="https://github.com/nilp0inter/nowayprompt/actions/workflows/ci.yml"><img src="https://github.com/nilp0inter/nowayprompt/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://app.renovatebot.com/dashboard"><img src="https://img.shields.io/badge/maintaied%20with-renovate-blue?logo=renovatebot" alt="renovate"></a>
+  <a href="https://app.renovatebot.com/dashboard"><img src="https://img.shields.io/badge/maintained%20with-renovate-blue?logo=renovatebot" alt="renovate"></a>
   <a href="https://nixos.org/"><img src="https://img.shields.io/badge/Built_with-Nix-5277C3?logo=nixos&logoColor=white" alt="Built with Nix"></a>
   <img src="https://img.shields.io/badge/Zig_content-0%25-brightgreen?logo=zig" alt="Zig content: 0%">
 </p>
@@ -18,20 +18,29 @@ for passwords without making a scene, then falls back to a TUI when Wayland has
 gone missing—such as in a TTY console.
 
 It needs a compositor with the layer-shell protocol
-(`zwlr_layer_shell_v1`). No layer shell, no tiny prompt stage.
+(`zwlr_layer_shell_v1`). No layer shell, no tiny prompt.
 
 ---
 
 ## Executables
 
-* **`nowayprompt`**: the prompt tool proper.
-* **`pinentry-nowayprompt`** (symlink / drop-in `pinentry-wayprompt`): a GPG
-  Pinentry replacement.
-* **`nowayprompt-ssh-askpass`** (symlink / drop-in
-  `wayprompt-ssh-askpass`): an `ssh-askpass` provider for SSH and Git.
+The package installs one binary plus two basename aliases; the invocation
+basename selects the contract each entry point provides.
 
-They all speak the same configuration dialect. See
-`reference/security_tty_ipc.md` for the `wayprompt.5` details.
+* **`$out/bin/nowayprompt`**: the prompt tool proper.
+* **`$out/bin/pinentry-nowayprompt`**: a GPG Pinentry replacement, installed
+  as a symlink to `nowayprompt`.
+* **`$out/bin/nowayprompt-ssh-askpass`**: an `ssh-askpass` provider for SSH
+  and Git, installed as a symlink to `nowayprompt`.
+
+They all speak the `wayprompt.5` configuration dialect. Configuration is
+looked up inside a single base directory — `$XDG_CONFIG_HOME`, else
+`$HOME/.config`, else `/etc` — where `nowayprompt/config.ini` wins over
+`wayprompt/config.ini` (the fallback is silent, files are never merged, and
+an existing file that fails to parse is an error rather than a skip; no
+candidate in the selected base means built-in defaults). See
+`nowayprompt.conf(5)` for the full cascade and format, and
+`reference/security_tty_ipc.md` for dialect details.
 
 ---
 
@@ -66,7 +75,7 @@ nix build
 
 ---
 
-## Reference & Legacy Code
+## Reference
 
 * Specifications and API documentation live in `reference/`:
   * `reference/wayland.md`
@@ -75,8 +84,6 @@ nix build
   * `reference/security_tty_ipc.md`
   * `reference/critic_security.md`
   * `reference/critic_wayland_graphics.md`
-* The legacy Zig codebase lives in `reference/legacy/`, for archaeology and
-  historical curiosity.
 
 ---
 

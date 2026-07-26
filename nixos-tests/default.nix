@@ -1,10 +1,10 @@
 # NixOS differential parity test harness.
 #
-# Each stage of the Rust rewrite (see RUST_REWRITE.md §4-5) has a
-# corresponding `nixosTest` that runs the Rust `nowayprompt` target and the
-# legacy `pkgs.wayprompt` baseline (pinned to nixos-26.05, v0.1.2) through the
-# same scripted scenario and asserts behavioral parity. A stage is not done
-# until its test passes against the pinned oracle ("staggered" strategy).
+# Each `nixosTest` runs the `nowayprompt` target and the pinned behavioral
+# oracle `pkgs.wayprompt` (v0.1.2, from nixos-26.05) through the same
+# scripted scenario and asserts behavioral parity. Behaviors the oracle
+# cannot reach in a headless VM are gated on the target directly, against
+# the documented contract.
 #
 # This attrset is wired into `flake.nix` as the top-level `nixosTests` output
 # (NOT perSystem): the VM tests only run on x86_64-linux and must resolve the
@@ -27,16 +27,15 @@ let
     pkgs.testers.nixosTest (import path { inherit lib nixpkgs pkgs selfpkgs; });
 in
 {
-  # Stage 1 backfill: CLI & config parsing parity (omitted from the archived
-  # Stage 0-1 change).
-  stage-1-cli-config = mkTest ./stage-1-cli-config.nix;
+  # CLI & config parsing parity.
+  cli-config = mkTest ./cli-config.nix;
 
-  # Stage 2: Assuan IPC wire-protocol parity.
-  stage-2-assuan = mkTest ./stage-2-assuan.nix;
+  # Assuan IPC wire-protocol parity.
+  assuan = mkTest ./assuan.nix;
 
-  # Stage 3: hardened TTY console fallback parity.
-  stage-3-tty = mkTest ./stage-3-tty.nix;
+  # Hardened TTY console fallback parity.
+  tty = mkTest ./tty.nix;
 
-  # Stage 4: reachable layer-shell Wayland parity under headless Sway.
-  stage-4-wayland = mkTest ./stage-4-wayland.nix;
+  # Reachable layer-shell Wayland parity under headless Sway.
+  wayland = mkTest ./wayland.nix;
 }

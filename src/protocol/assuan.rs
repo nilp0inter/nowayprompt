@@ -1,10 +1,9 @@
 //! Assuan pinentry IPC protocol handler.
 //!
 //! Implements the Assuan wire protocol as spoken between pinentry and
-//! gpg-agent, with 100% behavioral parity with
-//! `legacy/src/wayprompt-pinentry.zig`. Handles percent-decoding,
-//! command dispatch, frontend mode transitions, and zero-copy secret
-//! streaming.
+//! gpg-agent, following the `wayprompt` pinentry command set. Handles
+//! percent-decoding, command dispatch, frontend mode transitions, and
+//! zero-copy secret streaming.
 
 use std::io::{self, Write};
 
@@ -47,8 +46,7 @@ impl From<FrontendError> for AssuanError {
 /// Decode an Assuan percent-encoded string, optionally stripping hotkey
 /// underscores.
 ///
-/// Two-pass algorithm mirroring legacy `pinentryDupe`
-/// (wayprompt-pinentry.zig lines 461-491):
+/// Two-pass algorithm:
 /// - Pass 1: compute output length (`%` subtracts 2, `_` with
 ///   `strip_hotkey` subtracts 1).
 /// - Pass 2: decode bytes into the output buffer.
@@ -94,8 +92,6 @@ pub fn assuan_decode(input: &str, strip_hotkey: bool) -> Result<String, AssuanEr
 
 /// Assuan-level prompt mode. Distinguishes `Confirm` from `Message`
 /// (both map to frontend `InterfaceMode::Message`).
-///
-/// Parity with legacy `Mode` enum in wayprompt-pinentry.zig line 39.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssuanMode {
     None,
@@ -177,9 +173,8 @@ impl<W: Write> AssuanRepl<W> {
 
     /// Handle a single Assuan input line.
     ///
-    /// Parity with legacy `parseInput` (wayprompt-pinentry.zig
-    /// lines 249-420). Commands received while a prompt is active
-    /// (mode != None) are silently dropped (parity line 276).
+    /// Commands received while a prompt is active (mode != None) are
+    /// silently dropped.
     pub fn handle_line(
         &mut self,
         cfg: &mut Config,
@@ -187,7 +182,7 @@ impl<W: Write> AssuanRepl<W> {
         frontend: &mut dyn Frontend,
         line: &str,
     ) -> Result<(), AssuanError> {
-        // Drop commands during active prompt (parity line 276).
+        // Drop commands during an active prompt.
         if self.mode != AssuanMode::None {
             return Ok(());
         }
@@ -221,8 +216,8 @@ impl<W: Write> AssuanRepl<W> {
                 self.writer.write_all(b"OK\n")?;
             }
             "SETOK" => {
-                // Legacy uses line["setok ".len..] — strip one
-                // leading space from args.
+                // Strip exactly one leading space after the command
+                // keyword; the remainder is the raw label value.
                 let args = line.get(cmd.len() + 1..).unwrap_or("");
                 cfg.labels.ok = Some(assuan_decode(args, false)?);
                 self.writer.write_all(b"OK\n")?;
@@ -238,8 +233,8 @@ impl<W: Write> AssuanRepl<W> {
                 self.writer.write_all(b"OK\n")?;
             }
             "GETPIN" => {
-                // Apply default button labels (parity getpin(),
-                // lines 195-212). Transfers ownership.
+                // Apply default button labels if none were set.
+                // Transfers ownership.
                 if cfg.labels.ok.is_none() {
                     if let Some(ok) = self.default_ok.take() {
                         cfg.labels.ok = Some(ok);
@@ -254,8 +249,8 @@ impl<W: Write> AssuanRepl<W> {
                 frontend.enter_mode(InterfaceMode::GetPin)?;
             }
             "CONFIRM" => {
-                // Apply default yes/no labels (parity confirm(),
-                // lines 230-247). Transfers ownership.
+                // Apply default yes/no labels if none were set.
+                // Transfers ownership.
                 if cfg.labels.ok.is_none() {
                     if let Some(yes) = self.default_yes.take() {
                         cfg.labels.ok = Some(yes);
@@ -270,8 +265,7 @@ impl<W: Write> AssuanRepl<W> {
                 frontend.enter_mode(InterfaceMode::Message)?;
             }
             "MESSAGE" => {
-                // If nothing to display, just acknowledge (parity
-                // message(), lines 214-228).
+                // If nothing to display, just acknowledge.
                 if cfg.labels.title.is_none()
                     && cfg.labels.description.is_none()
                     && cfg.labels.err_message.is_none()
@@ -322,8 +316,8 @@ impl<W: Write> AssuanRepl<W> {
                 )?;
             }
             "SETKEYINFO" => {
-                // Silently accepted (parity lines 372-380). gpg-agent
-                // aborts on ERR for this command.
+                // Silently accepted: gpg-agent aborts on ERR for this
+                // command.
                 self.writer.write_all(b"OK\n")?;
             }
             "CANCEL" | "SETGENPIN" | "SETGENPIN_TT" | "SETTIMEOUT" | "END" | "QUIT" | "AUTH"
@@ -339,7 +333,7 @@ impl<W: Write> AssuanRepl<W> {
         Ok(())
     }
 
-    /// Handle the OPTION command (parity lines 324-368).
+    /// Handle the OPTION command.
     ///
     /// Prefix-matches on the option argument token (NOT split_once).
     /// Unknown options are silently accepted.
@@ -362,8 +356,7 @@ impl<W: Write> AssuanRepl<W> {
         Ok(())
     }
 
-    /// Handle a frontend event (parity handleFrontendEvent,
-    /// lines 157-193).
+    /// Handle a frontend event.
     ///
     /// Translates user interaction events into Assuan wire responses
     /// and resets protocol state after GetPin/Confirm prompts.
@@ -392,7 +385,7 @@ impl<W: Write> AssuanRepl<W> {
         }
 
         // The error message must automatically reset after every
-        // GETPIN or CONFIRM action (parity lines 181-187).
+        // GETPIN or CONFIRM action.
         if self.mode == AssuanMode::GetPin || self.mode == AssuanMode::Confirm {
             cfg.labels.err_message = None;
         }
@@ -407,8 +400,7 @@ impl<W: Write> AssuanRepl<W> {
 
 /// Extract an OPTION value from the raw line using prefix matching.
 ///
-/// Parity with legacy `getOption` (wayprompt-pinentry.zig lines
-/// 433-438). Uses the fixed offset `"option ".len() + opt.len()`
+/// Uses the fixed offset `"option ".len() + opt.len()`
 /// into the original line to extract the value, preserving any
 /// characters that the tokenizer might have split on.
 fn get_option<'a>(opt: &str, arg: &str, line: &'a str) -> Option<&'a str> {
@@ -422,8 +414,7 @@ fn get_option<'a>(opt: &str, arg: &str, line: &'a str) -> Option<&'a str> {
 /// Stream a secret to the Assuan writer without intermediate
 /// allocation.
 ///
-/// Parity with legacy `dumpPin` (wayprompt-pinentry.zig lines
-/// 423-431). Writes `D <secret>\nEND\nOK\n` for Some, or just
+/// Writes `D <secret>\nEND\nOK\n` for Some, or just
 /// `OK\n` for None. NO format!/String allocation holding the secret.
 fn dump_pin<W: Write>(writer: &mut W, secret: Option<&[u8]>) -> io::Result<()> {
     match secret {

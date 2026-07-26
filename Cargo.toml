@@ -2,7 +2,7 @@
 name = "nowayprompt"
 version = "0.1.0"
 edition = "2021"
-license = "ISC"
+license = "GPL-3.0-only"
 default-run = "nowayprompt"
 
 [[bin]]
@@ -14,7 +14,7 @@ libc = "0.2"
 zeroize = "1.8"
 memmap2 = "0.9"
 signal-hook = "0.4"
-# --- Stage 3: Wayland frontend ---
+# --- Wayland frontend: pure-Rust protocol stack, software rasterizer, text shaping, XKB keymap ---
 # Pure-Rust Wayland client (default `rs` socket backend; no libwayland-client.so).
 wayland-client = "0.31"
 # wlr protocols: zwlr_layer_shell_v1 (needs `client` feature).
@@ -25,13 +25,14 @@ wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 # fractional_scale needs `staging`.
 wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
 tiny-skia = "0.12"
-# Text shaping/layout (replaces fcft).
+# Text shaping and layout.
 cosmic-text = "0.19"
 # Font source type for `FontSystem::new_with_fonts` (transitive dep of cosmic-text).
 fontdb = "0.23"
-# XKB keymap: sole C-dlopen exception (D3). dlopens libxkbcommon.so at
-# runtime. No `x11` feature — this is a Wayland-only frontend, and the
-# nix buildInputs provide only libxkbcommon (not -x11).
+# XKB keymap handling — the sole runtime C dynamic-library dependency:
+# dlopens libxkbcommon.so at runtime. No `x11` feature — this is a
+# Wayland-only frontend, and the nix buildInputs provide only
+# libxkbcommon (not -x11).
 xkbcommon = "0.9"
 
 [profile.release]

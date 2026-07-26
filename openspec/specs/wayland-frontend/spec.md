@@ -1,12 +1,12 @@
 ## Purpose
 
-Defines the Stage 3 Wayland frontend: a `Wayland` struct implementing the frozen `Frontend` trait, covering display connection, registry global binding, layer-shell surface lifecycle, and the `exit_reason` dispatch state machine — a faithful Rust port of legacy `Wayland.zig`.
+Defines the Wayland frontend: a `Wayland` struct implementing the frozen `Frontend` trait, covering display connection, registry global binding, layer-shell surface lifecycle, and the `exit_reason` dispatch state machine.
 
 ## Requirements
 
 ### Requirement: Wayland frontend implements Frontend
 
-The `src/frontend/wayland/mod.rs` module MUST define a `Wayland` struct that implements the `Frontend` trait. `init` MUST connect to the Wayland display named by `config.wayland_display` when set, otherwise by `WAYLAND_DISPLAY`. The selected name MUST be the input to the actual client connection, not merely a validation check. `init` MUST bind registry globals (`wl_compositor`, `wl_shm`, `wl_seat`, `zwlr_layer_shell_v1`, `wp_cursor_shape_manager_v1`, `wp_fractional_scale_manager_v1`), perform a sync round-trip, initialize the XKB context, and return the `EventQueue` fd for `poll(2)`. `deinit` MUST tear down all globals in legacy order (surfaces, buffers, layer shell, cursor manager, fractional-scale manager, seats, registry, queue, connection). `enter_mode` MUST defer to `delayed_mode` if the sync callback has not fired (parity with `Wayland.zig:1542-1546`). `flush`/`handle_event`/`no_event` MUST implement the Wayland dispatch triad (D4).
+The `src/frontend/wayland/mod.rs` module MUST define a `Wayland` struct that implements the `Frontend` trait. `init` MUST connect to the Wayland display named by `config.wayland_display` when set, otherwise by `WAYLAND_DISPLAY`. The selected name MUST be the input to the actual client connection, not merely a validation check. `init` MUST bind registry globals (`wl_compositor`, `wl_shm`, `wl_seat`, `zwlr_layer_shell_v1`, `wp_cursor_shape_manager_v1`, `wp_fractional_scale_manager_v1`), perform a sync round-trip, initialize the XKB context, and return the `EventQueue` fd for `poll(2)`. `deinit` MUST tear down all globals in the following order (surfaces, buffers, layer shell, cursor manager, fractional-scale manager, seats, registry, queue, connection). `enter_mode` MUST defer to `delayed_mode` if the sync callback has not fired. `flush`/`handle_event`/`no_event` MUST implement the Wayland dispatch triad.
 
 #### Scenario: explicit configured display connects
 - **WHEN** `Config.wayland_display` names an available Wayland socket distinct from `WAYLAND_DISPLAY`
@@ -42,7 +42,7 @@ The `src/frontend/wayland/mod.rs` module MUST define a `Wayland` struct that imp
 
 ### Requirement: Registry global binding
 
-The `Wayland` struct MUST bind registry globals in the `registryListener` pattern: `wl_compositor`, `wl_shm`, `wl_seat` (multi-seat, tracked as a list), `zwlr_layer_shell_v1`, `wp_cursor_shape_manager_v1`, and `wp_fractional_scale_manager_v1` (if advertised). A sync round-trip (`display.sync` + `WlCallback`) MUST finalize binding before the frontend enters the event loop. `addSeat` MUST append to a seat list (parity with `Wayland.zig:1737-1738`).
+The `Wayland` struct MUST bind registry globals in its `Dispatch<WlRegistry, ()>` registry handler: `wl_compositor`, `wl_shm`, `wl_seat` (multi-seat, tracked as a list), `zwlr_layer_shell_v1`, `wp_cursor_shape_manager_v1`, and `wp_fractional_scale_manager_v1` (if advertised). A sync round-trip (`display.sync` + `WlCallback`) MUST finalize binding before the frontend enters the event loop. The registry handler MUST append each advertised `wl_seat` to the seat list.
 
 #### Scenario: all globals bound after sync
 - **WHEN** the sync callback fires
@@ -54,7 +54,7 @@ The `Wayland` struct MUST bind registry globals in the `registryListener` patter
 
 ### Requirement: Layer-shell surface lifecycle
 
-The `Surface` MUST be created via `zwlr_layer_shell_v1.get_layer_surface` with `Layer::Overlay`, anchored on all edges, with keyboard interactivity set to exclusive. It MUST acknowledge the `configure` event with the same serial before committing. `calculateSize` MUST compute width/height from the TextViews and UI config (parity with `Wayland.zig:788-849`). Multi-output Enter/Leave MUST be tracked. `set_buffer_scale` MUST be set per the fractional scale (D8).
+The `Surface` MUST be created via `zwlr_layer_shell_v1.get_layer_surface` with `Layer::Overlay`, anchored on all edges, with keyboard interactivity set to exclusive. It MUST acknowledge the `configure` event with the same serial before committing. `calculate_size` MUST compute width/height from the TextViews and UI config. Multi-output Enter/Leave MUST be tracked. `set_buffer_scale` MUST be set per the fractional scale.
 
 #### Scenario: configure serial acknowledged
 - **WHEN** the compositor sends a `configure` event with serial N and dimensions WxH
@@ -66,7 +66,7 @@ The `Surface` MUST be created via `zwlr_layer_shell_v1.get_layer_surface` with `
 
 ### Requirement: exit_reason state machine
 
-The `Wayland` struct MUST track an `exit_reason: Option<FrontendError-like>` set by `abort()` on user input (UserOk/UserAbort/UserNotOk) or error. `flush`/`handle_event` MUST convert a set `exit_reason` into the corresponding `Event` via `exitReasonToReturnVal`, clear it, and call `enter_mode(None)` (parity with `Wayland.zig:1673-1689`).
+The `Wayland` struct MUST track an `exit_reason: Option<ExitReason>` set by `abort()` on user input (UserOk/UserAbort/UserNotOk) or error. `flush`/`handle_event` MUST convert a set `exit_reason` into the corresponding `Event` via `take_exit`, clear it, and call `enter_mode(None)`.
 
 #### Scenario: UserOk converts to Event
 - **WHEN** `exit_reason` is `UserOk` and `flush` or `handle_event` is called

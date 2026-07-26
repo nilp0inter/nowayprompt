@@ -18,7 +18,7 @@ The Assuan IPC handler MUST run a synchronous line-framed REPL over stdin/stdout
 
 ### Requirement: Percent-decoding and hotkey-underscore stripping
 
-The module MUST provide `assuan_decode(input: &str, strip_hotkey: bool) -> Result<String, AssuanError>` mirroring legacy `pinentryDupe`. `%XX` sequences (where `XX` is hex) MUST decode to the byte `u8::from_str_radix(XX, 16)`. When `strip_hotkey` is `true`, leading-underscore hotkey markers (`_`) MUST be stripped (skipped, not decoded). Malformed percent escapes (fewer than 2 trailing bytes, or non-hex digits) MUST return an error. The output MUST be valid UTF-8. `strip_hotkey=true` is applied ONLY to `default-ok`, `default-cancel`, `default-yes`, `default-no` `OPTION` values; all `SET*` commands use `strip_hotkey=false`.
+The module MUST provide `assuan_decode(input: &str, strip_hotkey: bool) -> Result<String, AssuanError>` implementing the pinned `pkgs.wayprompt` oracle's decode contract. `%XX` sequences (where `XX` is hex) MUST decode to the byte `u8::from_str_radix(XX, 16)`. When `strip_hotkey` is `true`, leading-underscore hotkey markers (`_`) MUST be stripped (skipped, not decoded). Malformed percent escapes (fewer than 2 trailing bytes, or non-hex digits) MUST return an error. The output MUST be valid UTF-8. `strip_hotkey=true` is applied ONLY to `default-ok`, `default-cancel`, `default-yes`, `default-no` `OPTION` values; all `SET*` commands use `strip_hotkey=false`.
 
 #### Scenario: Percent-decode a space
 - **WHEN** `assuan_decode("foo%20bar", false)` is called
@@ -88,7 +88,7 @@ The `D <secret>` output MUST NOT copy the secret into a `String` or `Vec` on the
 
 ### Requirement: CONFIRM and MESSAGE commands
 
-`CONFIRM` MUST apply default button labels (`default_yes` → `config.labels.ok` if `ok` is `None`; `default_no` → `config.labels.cancel` if `cancel` is `None`), set Assuan mode to `confirm`, and call `frontend.enter_mode(Message)` (legacy collapses confirm/message to the same frontend mode). `MESSAGE` MUST short-circuit with `OK\n` if `title`, `description`, AND `err_message` are all `None`; otherwise set mode to `message` and call `frontend.enter_mode(Message)`. On `UserOk`: emit `OK\n`. On `UserAbort`: emit `ERR 83886179 Operation cancelled\n`. On `UserNotOk`: emit `ERR 83886194 not confirmed\n`. After any terminal event, clear `err_message` and reset the secret buffer.
+`CONFIRM` MUST apply default button labels (`default_yes` → `config.labels.ok` if `ok` is `None`; `default_no` → `config.labels.cancel` if `cancel` is `None`), set Assuan mode to `confirm`, and call `frontend.enter_mode(Message)` (the pinned oracle collapses confirm/message to the same frontend mode). `MESSAGE` MUST short-circuit with `OK\n` if `title`, `description`, AND `err_message` are all `None`; otherwise set mode to `message` and call `frontend.enter_mode(Message)`. On `UserOk`: emit `OK\n`. On `UserAbort`: emit `ERR 83886179 Operation cancelled\n`. On `UserNotOk`: emit `ERR 83886194 not confirmed\n`. After any terminal event, clear `err_message` and reset the secret buffer.
 
 #### Scenario: MESSAGE with no content
 - **WHEN** `MESSAGE\n` is received and `title`, `description`, and `err_message` are all `None`
@@ -120,7 +120,7 @@ The `D <secret>` output MUST NOT copy the secret into a `String` or `Vec` on the
 
 ### Requirement: OPTION command parsing
 
-`OPTION <arg>` MUST parse `arg` by prefix-matching against known option prefixes (legacy `getOption` uses `mem.startsWith` on the whole option token, not `split_once('=')`): `putenv=WAYLAND_DISPLAY=` → set `config.wayland_display`; `ttyname=` → set `config.tty_name`; `default-ok=` → set runtime `default_ok` (decoded with `strip_hotkey=true`); `default-cancel=` → set `default_cancel` (strip_hotkey=true); `default-yes=` → set `default_yes` (strip_hotkey=true); `default-no=` → set `default_no` (strip_hotkey=true). Any prior value MUST be freed/replaced. Unknown options MUST be silently accepted with `OK\n` (legacy comment lines 364–368: "Most options are internationalisation for features we don't offer"). On any `OPTION`, emit `OK\n`.
+`OPTION <arg>` MUST parse `arg` by prefix-matching against known option prefixes (matching prefixes on the whole option token, not `split_once('=')`): `putenv=WAYLAND_DISPLAY=` → set `config.wayland_display`; `ttyname=` → set `config.tty_name`; `default-ok=` → set runtime `default_ok` (decoded with `strip_hotkey=true`); `default-cancel=` → set `default_cancel` (strip_hotkey=true); `default-yes=` → set `default_yes` (strip_hotkey=true); `default-no=` → set `default_no` (strip_hotkey=true). Any prior value MUST be freed/replaced. Unknown options MUST be silently accepted with `OK\n` (most options are internationalisation for features the prompt does not offer). On any `OPTION`, emit `OK\n`.
 
 #### Scenario: OPTION ttyname sets config.tty_name
 - **WHEN** `OPTION ttyname=/dev/tty3\n` is received
@@ -184,7 +184,7 @@ Any command not in the implemented, silently-accepted, or not-implemented sets M
 
 ### Requirement: Commands ignored while a prompt is active
 
-The handler MUST ignore all commands received while an Assuan-level mode is active (`getpin`, `confirm`, `message`) — legacy line 276: `if (mode != .none) return;`. The command is silently dropped (no response) and the loop continues waiting for the frontend event to complete the active prompt.
+The handler MUST ignore all commands received while an Assuan-level mode is active (`getpin`, `confirm`, `message`). The command is silently dropped (no response) and the loop continues waiting for the frontend event to complete the active prompt.
 
 #### Scenario: SETTITLE during GETPIN is ignored
 - **WHEN** `GETPIN\n` has been sent and the user has not yet pressed Enter, and `SETTITLE X\n` arrives
@@ -192,7 +192,7 @@ The handler MUST ignore all commands received while an Assuan-level mode is acti
 
 ### Requirement: Partial-line stdin buffering
 
-The handler MUST buffer partial lines from stdin across `read` calls using `std::io::BufReader<std::io::Stdin>` (or equivalent line-accumulating reader). A command split across two reads MUST be reassembled before dispatch. This fixes legacy's open partial-line TODO while preserving full-line semantics.
+The handler MUST buffer partial lines from stdin across `read` calls using `std::io::BufReader<std::io::Stdin>` (or equivalent line-accumulating reader). A command split across two reads MUST be reassembled before dispatch; full-line command semantics are otherwise preserved.
 
 #### Scenario: Command split across two reads
 - **WHEN** stdin yields `SETT` on one read and `ITLE X\n` on the next read

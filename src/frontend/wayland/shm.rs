@@ -1,7 +1,7 @@
-//! SHM buffer pool (parity `Wayland.zig:1256-1423`).
+//! SHM buffer pool.
 //!
 //! Triple-buffer slot arena with `Dispatch<WlBuffer, usize>` user-data
-//! index for `.release` busy-state tracking (D5). Slots are
+//! index for `.release` busy-state tracking. Slots are
 //! `Vec<Option<Buffer>>` so the user-data index stays stable across culls.
 
 use memmap2::MmapMut;
@@ -13,7 +13,7 @@ use wayland_client::{Connection, Dispatch, QueueHandle};
 
 use crate::frontend::wayland::WaylandState;
 
-/// Maximum buffers per surface (parity `Wayland.zig:1263`).
+/// Maximum buffers per surface.
 pub const MAX_BUFFER_MULTIPLICITY: usize = 3;
 
 /// A single SHM-backed buffer.
@@ -26,11 +26,10 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    /// Allocate a new SHM buffer of `width` x `height` (Argb8888).
-    ///
-    /// Parity `Wayland.zig:1362-1410`: `memfd_create` + `ftruncate` +
-    /// `MAP_SHARED` + `PROT_READ|PROT_WRITE` mmap, `wl_shm.create_pool`,
-    /// `pool.create_buffer` with `Format::Argb8888` and stride `width*4`.
+    /// Allocate a new SHM buffer of `width` x `height` (Argb8888):
+    /// `memfd_create` + `ftruncate` + `MAP_SHARED` + `PROT_READ|PROT_WRITE`
+    /// mmap, `wl_shm.create_pool`, `pool.create_buffer` with
+    /// `Format::Argb8888` and stride `width*4`.
     pub fn new(
         shm: &WlShm,
         qh: &QueueHandle<WaylandState>,
@@ -58,8 +57,7 @@ impl Buffer {
 
         // mmap MAP_SHARED + PROT_READ|PROT_WRITE via MmapOptions. The
         // client's fd is closed when `fd` drops at function end (the
-        // compositor dups it for the pool; the mmap persists), matching
-        // legacy `defer posix.close(fd)` (`Wayland.zig:1374`).
+        // compositor dups it for the pool; the mmap persists).
         let mmap = unsafe {
             memmap2::MmapOptions::new()
                 .len(size)
@@ -107,7 +105,7 @@ fn zero() -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidInput, "zero-sized buffer")
 }
 
-/// Triple-buffer slot arena (parity `Wayland.zig:1256-1351`).
+/// Triple-buffer slot arena.
 ///
 /// Slots are `Vec<Option<Buffer>>`; the `Dispatch<WlBuffer, usize>`
 /// user-data is the slot index, which never shifts.
@@ -115,7 +113,7 @@ pub struct BufferPool {
     slots: Vec<Option<Buffer>>,
 }
 
-/// Pure slot-selection outcome (parity `Wayland.zig:1296-1327`).
+/// Pure slot-selection outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SlotDecision {
     /// Reuse an idle buffer of matching size (no re-allocation).
@@ -135,9 +133,8 @@ impl BufferPool {
 
     /// Get the slot index of a buffer of the requested dimensions,
     /// reusing an idle buffer of matching size, else re-initing an idle
-    /// mismatched-size buffer, else allocating a new slot
-    /// (parity `Wayland.zig:1282-1317`). Culls on every call (parity with
-    /// legacy's `defer cullBuffers()`).
+    /// mismatched-size buffer, else allocating a new slot. Culls idle
+    /// buffers on every call.
     pub fn next_buffer(
         &mut self,
         shm: &WlShm,
@@ -194,8 +191,7 @@ impl BufferPool {
         self.slots.get_mut(idx).and_then(|s| s.as_mut())
     }
 
-    /// Destroy idle buffers exceeding `MAX_BUFFER_MULTIPLICITY`
-    /// (parity `Wayland.zig:1333-1350`).
+    /// Destroy idle buffers exceeding `MAX_BUFFER_MULTIPLICITY`.
     pub fn cull_buffers(&mut self) {
         let live = self.slots.iter().filter(|s| s.is_some()).count();
         if live <= MAX_BUFFER_MULTIPLICITY {
@@ -257,7 +253,7 @@ impl Dispatch<WlBuffer, usize> for WaylandState {
         _: &QueueHandle<Self>,
     ) {
         use wayland_client::protocol::wl_buffer::Event;
-        // Parity `Wayland.zig:1418-1422`: release flips busy=false.
+        // `release` flips busy=false.
         if let Event::Release = event {
             if let Some(b) = state.buffer_pool.get_mut(*slot) {
                 b.busy = false;

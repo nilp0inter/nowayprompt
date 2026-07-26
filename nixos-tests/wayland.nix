@@ -1,4 +1,4 @@
-# Stage 4: reachable layer-shell Wayland differential parity.
+# Reachable layer-shell Wayland differential parity.
 #
 # Sway is selected because it implements zwlr_layer_shell_v1. Cage is excluded:
 # it does not provide that protocol. ydotoold owns a persistent uinput keyboard;
@@ -7,7 +7,7 @@
 { lib, nixpkgs, pkgs, selfpkgs }:
 
 let
-  oracle = pkgs.wayprompt;
+  oracle = pkgs.wayprompt; # pinned oracle/reference binary
   target = selfpkgs.x86_64-linux.nowayprompt;
   geometry = selfpkgs.x86_64-linux.nowayprompt-wayland-test;
   driver = ./wayland-driver.py;
@@ -17,7 +17,7 @@ let
   '';
 in
 {
-  name = "stage-4-wayland";
+  name = "wayland";
 
   nodes.machine = { ... }: {
     virtualisation.memorySize = 2048;

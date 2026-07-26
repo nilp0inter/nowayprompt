@@ -4,9 +4,9 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     # Pinned oracle revision for the NixOS differential parity tests:
-    # pkgs.wayprompt (v0.1.2) from nixos-26.05 is the legacy baseline the
-    # Rust target is asserted against. Kept separate from the dev/build
-    # nixpkgs so the oracle cannot drift with nixos-unstable.
+    # pkgs.wayprompt (v0.1.2) from nixos-26.05 is the pinned behavioral
+    # oracle the target is asserted against. Kept separate from the
+    # dev/build nixpkgs so the oracle cannot drift with nixos-unstable.
     nixpkgs-26_05.url = "github:nixos/nixpkgs/nixos-26.05";
     flake-parts.url = "github:hercules-ci/flake-parts";
     git-hooks-nix = {
@@ -36,7 +36,7 @@
         pkgs = nixpkgs-26_05.legacyPackages.x86_64-linux;
         selfpkgs = self.packages;
       };
-      perSystem = { pkgs, system, ... }:
+      perSystem = { pkgs, system, config, ... }:
         let
           rustToolchain = with pkgs; [
             rustc
@@ -92,7 +92,7 @@
                 ./src
                 ./man
                 # Bundled fonts referenced via `include_bytes!` in the
-                # Wayland render pipeline (design D7).
+                # Wayland render pipeline.
                 ./assets
               ];
             };
@@ -114,10 +114,16 @@
                 "$out/share/man/man5/nowayprompt.conf.5"
             '';
             meta = {
+              description = "Wayland prompt tool (pinentry and ssh-askpass replacement)";
+              homepage = "https://github.com/nilp0inter/nowayprompt";
+              license = pkgs.lib.licenses.gpl3Only;
               mainProgram = "nowayprompt";
               maintainers = [ pkgs.lib.maintainers.nilp0inter ];
             };
           };
+
+          # Bare `nix build` resolves the public package.
+          packages.default = config.packages.nowayprompt;
 
           # Test infrastructure only; it is consumed by the Wayland parity
           # derivation and is not installed by the public package.

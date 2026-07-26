@@ -6,7 +6,7 @@ Defines parsing and validation of the nowayprompt INI configuration format.
 
 ### Requirement: Streaming INI line parser via BufRead
 
-The config parser MUST read `wayprompt.5` INI files via `std::io::BufRead` line-by-line without loading the entire file into a heap structure. Each line MUST be trimmed of leading/trailing whitespace. Inline comments starting with `#` MUST be stripped. Trailing semicolons (`;`) on assignment values MUST be stripped (parity with legacy `zig-ini` `.semicolon` tokenization).
+The config parser MUST read `wayprompt.5` INI files via `std::io::BufRead` line-by-line without loading the entire file into a heap structure. Each line MUST be trimmed of leading/trailing whitespace. Inline comments starting with `#` MUST be stripped. Trailing semicolons (`;`) on assignment values MUST be stripped (`wayprompt.5` dialect compatibility).
 
 #### Scenario: Basic key-value assignment
 - **WHEN** the parser reads `button_inner_padding = 5;`
@@ -66,18 +66,40 @@ Color values in `[colours]` MUST be parsed as hex strings `0xRRGGBB` (6 hex digi
 
 ### Requirement: Config file path resolution
 
-The parser MUST resolve the config file path in order: `$XDG_CONFIG_HOME/wayprompt/config.ini`, then `$HOME/.config/wayprompt/config.ini`, then `/etc/wayprompt/config.ini`. If no file exists at any path, parsing MUST succeed silently (no config loaded; defaults used).
+The parser MUST confine config lookup to a single base directory: `$XDG_CONFIG_HOME` when set and non-empty, else `$HOME/.config` when `HOME` is set and non-empty, else `/etc`. Within that base it MUST probe, in order, `<base>/nowayprompt/config.ini` and `<base>/wayprompt/config.ini`, and load the first candidate that exists. A missing candidate falls through to the next candidate silently; a candidate that exists but fails to read or parse MUST surface its error without falling through. Candidate files are never merged and candidates outside the selected base are never probed. If neither candidate exists in the selected base, parsing MUST succeed with defaults (no config loaded).
 
-#### Scenario: XDG_CONFIG_HOME set
+The `nowayprompt/config.ini` primary candidate is an intentional, documented divergence from `pkgs.wayprompt`, which reads only `wayprompt/config.ini`; the `wayprompt/config.ini` fallback keeps existing `wayprompt` installations working unchanged.
+
+#### Scenario: XDG_CONFIG_HOME selects the base
 - **WHEN** `XDG_CONFIG_HOME` is set to `/home/user/.config`
-- **THEN** the config path is `/home/user/.config/wayprompt/config.ini`
+- **THEN** the candidates are `/home/user/.config/nowayprompt/config.ini` then `/home/user/.config/wayprompt/config.ini`, and no `$HOME/.config` or `/etc` path is probed
 
-#### Scenario: No XDG, HOME set
+#### Scenario: No XDG, HOME selects the base
 - **WHEN** `XDG_CONFIG_HOME` is unset but `HOME` is `/home/user`
-- **THEN** the config path is `/home/user/.config/wayprompt/config.ini`
+- **THEN** the candidates are `/home/user/.config/nowayprompt/config.ini` then `/home/user/.config/wayprompt/config.ini`
+
+#### Scenario: /etc base
+- **WHEN** neither `XDG_CONFIG_HOME` nor `HOME` is set and non-empty
+- **THEN** the candidates are `/etc/nowayprompt/config.ini` then `/etc/wayprompt/config.ini`
+
+#### Scenario: Primary candidate wins without merging
+- **WHEN** both `nowayprompt/config.ini` and `wayprompt/config.ini` exist in the selected base
+- **THEN** only `nowayprompt/config.ini` is loaded; `wayprompt/config.ini` is ignored entirely
+
+#### Scenario: Empty primary is an existing winner
+- **WHEN** `nowayprompt/config.ini` exists but is empty and `wayprompt/config.ini` also exists
+- **THEN** the empty primary is loaded (yielding defaults) and the fallback is not probed
+
+#### Scenario: Silent fallback to wayprompt config
+- **WHEN** `nowayprompt/config.ini` does not exist and `wayprompt/config.ini` exists
+- **THEN** `wayprompt/config.ini` is loaded without any diagnostic
+
+#### Scenario: Existing bad primary does not fall through
+- **WHEN** `nowayprompt/config.ini` exists but cannot be read or fails to parse
+- **THEN** the error is surfaced and `wayprompt/config.ini` is not loaded
 
 #### Scenario: No config file exists
-- **WHEN** no config file exists at any resolved path
+- **WHEN** neither candidate exists in the selected base
 - **THEN** parsing succeeds with defaults (no error)
 
 ### Requirement: Wayland UI dimension fields
@@ -94,7 +116,7 @@ The `[general]` section MUST accept integer fields: `vertical_padding`, `horizon
 
 ### Requirement: Color field names in [colours]
 
-The `[colours]` section MUST accept the legacy field names: `background`, `border`, `text`, `error_text`, `pin_background`, `pin_border`, `pin_square`, `ok_button`, `ok_button_border`, `ok_button_text`, `not_ok_button`, `not_ok_button_border`, `not_ok_button_text`, `cancel_button`, `cancel_button_border`, `cancel_button_text`. Each accepts a hex color value.
+The `[colours]` section MUST accept the `wayprompt.5` field names: `background`, `border`, `text`, `error_text`, `pin_background`, `pin_border`, `pin_square`, `ok_button`, `ok_button_border`, `ok_button_text`, `not_ok_button`, `not_ok_button_border`, `not_ok_button_text`, `cancel_button`, `cancel_button_border`, `cancel_button_text`. Each accepts a hex color value.
 
 #### Scenario: Known color field
 - **WHEN** the parser reads `error_text = 0xe0002b` in `[colours]`

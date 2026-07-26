@@ -1,8 +1,6 @@
 //! Wayland layer-shell frontend.
 //!
-//! 100% behavioral parity with `legacy/src/Wayland.zig`. Implements the
-//! frozen [`Frontend`] trait. Stage 3 ships this as a library; `main.rs`
-//! wiring is deferred to Stage 4.
+//! Implements the [`Frontend`] trait.
 //!
 //! ## Dispatch architecture
 //!
@@ -19,15 +17,13 @@
 //!   the `EventQueue<WaylandState>`, a cloned `QueueHandle`, and the
 //!   `WaylandState`.
 //!
-//! ## Single-threaded read model (deviation, recorded)
+//! ## Single-threaded read model
 //!
-//! Legacy splits `prepare_read` (flush) / `read_events` (handle_event) /
-//! `cancel_read` (no_event) to coordinate *multiple threads* reading the
-//! socket. A pinentry has exactly one event-loop thread, so that dance is
-//! inert. We collapse it: `flush` only flushes outbound traffic;
-//! `handle_event` does `prepare_read().read()` then `dispatch_pending`;
-//! `no_event` is a no-op. Observable behaviour (events dispatched, outbound
-//! flushed, `exit_reason` surfaced) is unchanged.
+//! `wayland-client` splits socket reads into `prepare_read` / `read_events`
+//! / `cancel_read` so *multiple threads* can share the socket. A pinentry
+//! has exactly one event-loop thread, so that dance is inert. We collapse
+//! it: `flush` only flushes outbound traffic; `handle_event` does
+//! `prepare_read().read()` then `dispatch_pending`; `no_event` is a no-op.
 
 pub mod input;
 pub mod render;
@@ -56,20 +52,18 @@ use self::render::Surface;
 use self::shm::BufferPool;
 
 /// User-initiated exit reason. Maps to [`Event`] variants or a propagated
-/// error. Parity with legacy `Wayland.exit_reason: ?anyerror`.
+/// error.
 #[derive(Debug)]
 enum ExitReason {
     UserOk,
     UserAbort,
     UserNotOk,
-    /// Non-user error (parity: `error.OutOfMemory`, `error.MissingWaylandInterfaces`, etc.).
+    /// Non-user error.
     Error(FrontendError),
 }
 
 /// The dispatch `State`. Owns all mutable protocol state and every
 /// `Dispatch<I, U>` impl.
-///
-/// Parity with the mutable fields of `Wayland.zig:1425-1458`.
 pub struct WaylandState {
     // Globals (bound by the registry handler).
     pub(crate) compositor: Option<WlCompositor>,
@@ -78,7 +72,7 @@ pub struct WaylandState {
     pub(crate) cursor_shape_manager: Option<WpCursorShapeManagerV1>,
     pub(crate) fractional_scale_manager: Option<WpFractionalScaleManagerV1>,
 
-    // Seats (multi-seat list, parity `Wayland.zig:1444`).
+    // Seats (multi-seat list).
     pub(crate) seats: Vec<Seat>,
 
     // Single surface + buffer pool.
@@ -86,7 +80,7 @@ pub struct WaylandState {
     pub(crate) buffer_pool: BufferPool,
 
     // Sync round-trip. While `Some`, globals may not be bound yet;
-    // `enter_mode` defers to `delayed_mode` (parity `Wayland.zig:1448-1454`).
+    // `enter_mode` defers to `delayed_mode`.
     sync: Option<WlCallback>,
     delayed_mode: Option<InterfaceMode>,
 
@@ -127,31 +121,30 @@ impl WaylandState {
         unsafe { &mut *self.secbuf_ptr.expect("secret buffer not set") }
     }
 
-    /// Abort with an exit reason (parity `Wayland.zig:1691-1697`).
+    /// Abort with an exit reason.
     fn abort(&mut self, reason: ExitReason) {
         self.exit_reason = Some(reason);
     }
 
-    /// Enter a mode, creating or destroying the surface
-    /// (parity `Wayland.zig:1535-1564`).
+    /// Enter a mode, creating or destroying the surface.
     fn enter_mode(
         &mut self,
         qh: &QueueHandle<Self>,
         mode: InterfaceMode,
     ) -> Result<(), FrontendError> {
         if self.mode == mode {
-            // Parity: `debug.assert(self.mode == .none)`.
+            // Re-requesting the current mode is only legal for `None`.
             assert_eq!(self.mode, InterfaceMode::None);
             return Ok(());
         }
 
-        // Defer until the sync callback fires (parity `Wayland.zig:1542-1546`).
+        // Defer until the sync callback fires.
         if self.sync.is_some() {
             self.delayed_mode = Some(mode);
             return Ok(());
         }
 
-        // Tear down the current surface's text views (parity deinitTextViews).
+        // Tear down the current surface's text views.
         if let Some(s) = self.surface.take() {
             s.deinit();
         }
@@ -227,8 +220,6 @@ impl WaylandState {
 }
 
 /// The Wayland frontend. Thin [`Frontend`] wrapper over [`WaylandState`].
-///
-/// Parity with the method set of `Wayland.zig:1460-1697`.
 pub struct Wayland {
     conn: Option<Connection>,
     queue: Option<EventQueue<WaylandState>>,
@@ -249,7 +240,7 @@ impl Wayland {
         }
     }
 
-    /// Provide the secret buffer pointer. Parity with `Tty::set_secret_buffer`.
+    /// Provide the secret buffer pointer.
     /// The caller guarantees the buffer outlives this frontend.
     pub fn set_secret_buffer(&mut self, secbuf: &mut SecretBuffer) {
         self.state.secbuf_ptr = Some(secbuf as *mut SecretBuffer);
@@ -306,7 +297,7 @@ impl Frontend for Wayland {
         self.qh = Some(qh);
         self.registry = Some(registry);
 
-        // The pollable fd is the Wayland socket fd (parity `display.getFd()`).
+        // The pollable fd is the Wayland socket fd.
         let fd = self
             .conn
             .as_ref()
@@ -317,7 +308,6 @@ impl Frontend for Wayland {
     }
 
     fn deinit(&mut self) {
-        // Parity `Wayland.zig:1502-1533`.
         self.state.deinit();
         // WlRegistry has no destructor request; dropping releases it.
         self.registry = None;
@@ -358,8 +348,8 @@ impl Frontend for Wayland {
     }
 
     fn flush(&mut self) -> Result<Option<Event>, FrontendError> {
-        // Flush outbound traffic only (see module docs for the read-model
-        // deviation). Then surface any pending exit reason.
+        // Flush outbound traffic only (see module docs for the read model).
+        // Then surface any pending exit reason.
         let conn = self.conn.as_ref().expect("init not called");
         match conn.flush() {
             Ok(()) => {}
@@ -463,7 +453,7 @@ impl Dispatch<WlRegistry, ()> for WaylandState {
                 interface,
                 version,
             } => {
-                // Bind globals by interface name (parity `Wayland.zig:1699-1735`).
+                // Bind globals by interface name.
                 if interface == ZwlrLayerShellV1::interface().name {
                     state.layer_shell =
                         Some(registry.bind::<ZwlrLayerShellV1, _, _>(name, version.min(4), qh, ()));
@@ -505,7 +495,7 @@ impl Dispatch<WlCallback, ()> for WaylandState {
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
-        // Sync round-trip complete (parity `Wayland.zig:1743-1761`).
+        // Sync round-trip complete.
         if state.layer_shell.is_none() || state.compositor.is_none() || state.shm.is_none() {
             state.abort(ExitReason::Error(FrontendError::Init(
                 "missing wayland interfaces".into(),
@@ -513,7 +503,7 @@ impl Dispatch<WlCallback, ()> for WaylandState {
         }
         // The callback is one-shot; clear our handle.
         state.sync = None;
-        // Apply any deferred mode (parity `Wayland.zig:1754-1760`).
+        // Apply any deferred mode.
         // `sync` was just cleared, so `enter_mode` will not re-defer.
         if let Some(mode) = state.delayed_mode.take() {
             if let Err(e) = state.enter_mode(qh, mode) {

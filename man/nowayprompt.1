@@ -34,10 +34,24 @@ Show usage and exit.
 .SH EXIT STATUS
 0 is OK, 10 is cancellation, 20 is not-OK, and 1 is an error.
 .SH FILES
-Configuration is read from
-.BR $XDG_CONFIG_HOME/wayprompt/config.ini
-or
-.BR $HOME/.config/wayprompt/config.ini .
+Configuration is looked up inside a single base directory:
+.I $XDG_CONFIG_HOME
+when set and non-empty, otherwise
+.IR $HOME/.config ,
+otherwise
+.IR /etc .
+Within that base,
+.I nowayprompt/config.ini
+is tried first and
+.I wayprompt/config.ini
+second; the first candidate that exists is loaded. The
+.I wayprompt/config.ini
+fallback is consulted silently; candidates are never merged and bases are
+never crossed. An existing file that cannot be read or parsed is reported as
+an error rather than skipped; if no candidate exists, built-in defaults are
+used. See
+.BR nowayprompt.conf (5)
+for the file format.
 .SH SEE ALSO
 .BR pinentry-nowayprompt (1),
 .BR nowayprompt-ssh-askpass (1),

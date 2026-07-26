@@ -34,7 +34,7 @@ The module MUST register signal handlers (via `signal-hook`) for `SIGINT`, `SIGT
 
 ### Requirement: Terminal size query via ioctl
 
-On `enter_mode` (transitioning into an active mode), the frontend MUST query the terminal size via `libc::ioctl(fd, TIOCGWINSZ, &mut winsize)` and store `width` and `height`. If the width is less than 5 or the height is less than 5, the frontend MUST render only the message `Terminal too small!` (bold, red) and not render the prompt UI. This matches legacy `TTY.zig` lines 137–141.
+On `enter_mode` (transitioning into an active mode), the frontend MUST query the terminal size via `libc::ioctl(fd, TIOCGWINSZ, &mut winsize)` and store `width` and `height`. If the width is less than 5 or the height is less than 5, the frontend MUST render only the message `Terminal too small!` (bold, red) and not render the prompt UI.
 
 #### Scenario: Terminal too small
 - **WHEN** `enter_mode` queries the size and width < 5 or height < 5
@@ -46,7 +46,7 @@ On `enter_mode` (transitioning into an active mode), the frontend MUST query the
 
 ### Requirement: ANSI rendering layout
 
-The `render` function MUST write to stdout in order: (1) clear screen + cursor home (`\x1b[2J\x1b[H`); (2) if `config.labels.title` is `Some`, render it with bold + green background + black foreground, space-padded to width; (3) if `config.labels.description` is `Some`, render it with default attributes, space-padded; (4) if `config.labels.prompt` is `Some`, render it bold, space-padded; (5) if mode is `GetPin`, render a line ` > ` followed by `*` repeated `min(pin_square_amount, len)` times and `_` repeated `pin_square_amount - len` times (where `len` is `SecretBuffer::len()` and `pin_square_amount` is `config.wayland_ui.pin_square_amount`); (6) if `config.labels.err_message` is `Some`, render it bold + red foreground; (7) if `config.labels.ok` is `Some`, render a button line `enter: <ok>`; (8) if `config.labels.not_ok` is `Some`, render `C-c: <not_ok>`; (9) if `config.labels.cancel` is `Some`, render `escape: <cancel>`. Multi-line label strings MUST wrap at the terminal width (parity with legacy `restrictedPaddingWriter`). Each label section is followed by a blank line.
+The `render` function MUST write to stdout in order: (1) clear screen + cursor home (`\x1b[2J\x1b[H`); (2) if `config.labels.title` is `Some`, render it with bold + green background + black foreground, space-padded to width; (3) if `config.labels.description` is `Some`, render it with default attributes, space-padded; (4) if `config.labels.prompt` is `Some`, render it bold, space-padded; (5) if mode is `GetPin`, render a line ` > ` followed by `*` repeated `min(pin_square_amount, len)` times and `_` repeated `pin_square_amount - len` times (where `len` is `SecretBuffer::len()` and `pin_square_amount` is `config.wayland_ui.pin_square_amount`); (6) if `config.labels.err_message` is `Some`, render it bold + red foreground; (7) if `config.labels.ok` is `Some`, render a button line `enter: <ok>`; (8) if `config.labels.not_ok` is `Some`, render `C-c: <not_ok>`; (9) if `config.labels.cancel` is `Some`, render `escape: <cancel>`. Multi-line label strings MUST wrap at the terminal width. Each label section is followed by a blank line.
 
 #### Scenario: GetPin render with secret
 - **WHEN** mode is `GetPin`, `len` is 3, `pin_square_amount` is 8, and labels are set
@@ -62,7 +62,7 @@ The `render` function MUST write to stdout in order: (1) clear screen + cursor h
 
 ### Requirement: Hand-rolled input parser
 
-The frontend MUST parse raw bytes from `libc::read(fd, buf, n)` into `TtyInput` events without a third-party input library. Recognized inputs: `\r` or `\n` → `Enter`; `\x1b` (standalone, not part of a longer escape sequence within the read buffer) → `Escape`; `\x7f` → `Backspace`; `\x03` → `C-c`; `\x15` → `C-u`; `\x17` → `C-w`; `\x08` → `C-backspace`. UTF-8 codepoint bytes (lead byte `0xxxxxxx`, `110xxxxx`, `1110xxxx`, or `11110xxx` followed by the correct number of `10xxxxxx` continuation bytes) → `Codepoint(char)` decoded via `std::str::from_utf8`. Modified codepoints (Alt/Ctrl/Super) MUST be ignored (dropped), matching legacy line 113. Unrecognized escape sequences (`\x1b[A`, `\x1b[B`, etc.) MUST be consumed and dropped as `Unknown`, NOT appended to the secret buffer (legacy appends them as codepoints, which is a bug; we drop them for safety parity).
+The frontend MUST parse raw bytes from `libc::read(fd, buf, n)` into `TtyInput` events without a third-party input library. Recognized inputs: `\r` or `\n` → `Enter`; `\x1b` (standalone, not part of a longer escape sequence within the read buffer) → `Escape`; `\x7f` → `Backspace`; `\x03` → `C-c`; `\x15` → `C-u`; `\x17` → `C-w`; `\x08` → `C-backspace`. UTF-8 codepoint bytes (lead byte `0xxxxxxx`, `110xxxxx`, `1110xxxx`, or `11110xxx` followed by the correct number of `10xxxxxx` continuation bytes) → `Codepoint(char)` decoded via `std::str::from_utf8`. Modified codepoints (Alt/Ctrl/Super) MUST be ignored (dropped). Unrecognized escape sequences (`\x1b[A`, `\x1b[B`, etc.) MUST be consumed and dropped as `Unknown`, NOT appended to the secret buffer (dropping prevents terminal control bytes from contaminating the secret).
 
 #### Scenario: Enter key
 - **WHEN** the read buffer is `b"\r"`
@@ -108,9 +108,9 @@ On `handle_event`, the frontend MUST read raw bytes and run the input parser. Fo
 - **WHEN** mode is active, `config.labels.not_ok` is `None`, and the user presses Ctrl+C
 - **THEN** `handle_event` returns `Ok(Event::UserAbort)`
 
-### Requirement: No SIGWINCH handling (parity)
+### Requirement: No SIGWINCH handling
 
-The frontend MUST NOT handle `SIGWINCH`. Terminal resize during a prompt leaves the layout stale until the next input event triggers a re-render. This matches legacy `TTY.zig` line 131 `TODO listen to SIGWINCH` which was never implemented. The frontend re-queries size on each `enter_mode` call, so a new prompt after resize gets the correct dimensions.
+The frontend MUST NOT handle `SIGWINCH`; resize tracking during an active prompt is intentionally not implemented. Terminal resize during a prompt leaves the layout stale until the next input event triggers a re-render. The frontend re-queries size on each `enter_mode` call, so a new prompt after resize gets the correct dimensions.
 
 #### Scenario: Resize during prompt does not re-render
 - **WHEN** the terminal is resized while a `GetPin` prompt is active and the user has not pressed a key

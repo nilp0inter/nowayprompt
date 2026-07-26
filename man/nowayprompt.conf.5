@@ -2,15 +2,49 @@
 .SH NAME
 nowayprompt.conf \- nowayprompt configuration format
 .SH SYNOPSIS
-.B $XDG_CONFIG_HOME/wayprompt/config.ini
+.I base/nowayprompt/config.ini
 .br
-.B $HOME/.config/wayprompt/config.ini
+.I base/wayprompt/config.ini
+.P
+where
+.I base
+is the first non-empty of
+.IR $XDG_CONFIG_HOME ,
+.IR $HOME/.config ,
+and
+.IR /etc .
 .SH DESCRIPTION
-The configuration file is an INI document with [general] and [colours]
+nowayprompt reads at most one configuration file. It confines the lookup to a
+single base directory:
+.I $XDG_CONFIG_HOME
+when set and non-empty, otherwise
+.I $HOME/.config
+when
+.I $HOME
+is set and non-empty, otherwise
+.IR /etc .
+Within that base,
+.I nowayprompt/config.ini
+is the primary candidate and
+.I wayprompt/config.ini
+is the fallback; the first candidate that exists wins. An empty primary file
+counts as existing and is loaded. The fallback is consulted silently, files
+are never merged, candidates outside the selected base are never consulted,
+and an existing file that cannot be read or parsed is reported as an error
+instead of being skipped. An absent configuration file is not an error:
+built-in defaults are used.
+.P
+The file format is the
+.BR wayprompt (5)
+INI dialect: assignments sorted into
+.B [general]
+and
+.B [colours]
 sections. General settings configure Wayland geometry and fonts. Colours use
 0xRRGGBB or 0xRRGGBBAA values. Runtime labels, TTY names, and Wayland display
 selection are supplied by the invoking command or Assuan protocol and are not
 configuration-file keys.
 .SH SEE ALSO
 .BR nowayprompt (1),
-.BR pinentry-nowayprompt (1)
+.BR pinentry-nowayprompt (1),
+.BR wayprompt (5)

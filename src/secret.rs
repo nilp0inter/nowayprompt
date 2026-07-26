@@ -4,8 +4,8 @@
 //! page locking, `madvise(MADV_DONTDUMP | MADV_WIPEONFORK)` protections,
 //! process-wide `RLIMIT_CORE = 0`, and `zeroize::Zeroize` on `Drop`.
 //!
-//! 100% behavioral parity with `legacy/src/SecretBuffer.zig`: UTF-8
-//! codepoint-aware append/delete, fixed single-page capacity, reset as
+//! Secret content is UTF-8 with codepoint-aware append/delete and a fixed
+//! single-page capacity.
 use std::fmt;
 use std::ptr::NonNull;
 
@@ -18,7 +18,7 @@ pub enum SecretError {
     /// `mlock(2)` failed too often (>= 10 attempts, mostly `EAGAIN`).
     MlockFailedTooOften,
     /// `madvise(2)` returned an unexpected errno (non-`EAGAIN`) or failed all
-    /// 10 attempts. Parity with legacy `MadvideFailedTooOften`.
+    /// 10 attempts.
     MadviseFailedTooOften,
     /// `mmap(2)` failed.
     MmapFailed(i32),
@@ -26,8 +26,7 @@ pub enum SecretError {
     SetRlimitCoreFailed(i32),
     /// `munmap(2)` failed during reset.
     MunmapFailed(i32),
-    /// `append_slice` exceeded the single-page capacity. Parity with legacy
-    /// `OutOfMemory`.
+    /// `append_slice` exceeded the single-page capacity.
     Overflow,
     /// `append_slice` was given invalid UTF-8.
     InvalidUtf8,
@@ -59,7 +58,7 @@ impl fmt::Display for SecretError {
 impl std::error::Error for SecretError {}
 
 /// Maximum retry attempts for `mlock` and `MADV_DONTDUMP` (`EAGAIN` is
-/// transient). Parity with legacy 10-attempt loop.
+/// transient).
 const RETRY_ATTEMPTS: usize = 10;
 
 /// Set `RLIMIT_CORE` to 0 process-wide, preventing core dumps. MUST be called
@@ -89,8 +88,8 @@ pub fn set_rlimit_core_zero() -> Result<(), SecretError> {
 
 /// A page-aligned, locked, non-dumpable secret byte buffer.
 ///
-/// Holds at most one system page of UTF-8 bytes. Tracks codepoint count
-/// (parity with legacy `len` field). Never heap-allocates; the backing
+/// Holds at most one system page of UTF-8 bytes and tracks the codepoint
+/// count. Never heap-allocates; the backing
 /// storage is a single `mmap(MAP_PRIVATE | MAP_ANONYMOUS)` page.
 pub struct SecretBuffer {
     /// Page-aligned `mmap` pointer, non-null while allocated.
@@ -167,8 +166,8 @@ impl SecretBuffer {
             return Err(SecretError::MlockFailedTooOften);
         }
 
-        // MADV_DONTDUMP with bounded retry on EAGAIN; hard error otherwise.
-        // Parity with legacy behaviour on Linux.
+        // MADV_DONTDUMP with bounded retry on EAGAIN; hard error otherwise
+        // (Linux only).
         #[cfg(target_os = "linux")]
         {
             let mut attempts = 0;
@@ -220,8 +219,8 @@ impl SecretBuffer {
 
     /// Append a UTF-8 slice. Counts codepoints; returns [`SecretError::Overflow`]
     /// if `byte_len + bytes.len()` exceeds the page capacity. On overflow the
-    /// buffer is unchanged (parity with legacy `appendSlice` failing before
-    /// mutation).
+    /// buffer is unchanged: validation and capacity checks complete before
+    /// mutation.
     pub fn append_slice(&mut self, bytes: &[u8]) -> Result<(), SecretError> {
         // Validate UTF-8 and count codepoints first; reject before mutation.
         let s = std::str::from_utf8(bytes).map_err(|_| SecretError::InvalidUtf8)?;
@@ -253,8 +252,7 @@ impl SecretBuffer {
     /// Remove the last UTF-8 codepoint from the buffer. No-op if empty.
     ///
     /// Walks backwards from the last byte, decoding the trailing UTF-8
-    /// sequence length, and truncates by exactly that many bytes. Parity
-    /// with legacy `deleteBackwards`.
+    /// sequence length, and truncates by exactly that many bytes.
     pub fn delete_backwards(&mut self) {
         if self.byte_len == 0 {
             return;

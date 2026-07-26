@@ -1,36 +1,36 @@
 #!/usr/bin/env python3
-"""Stage 3 TTY console fallback differential driver.
+"""TTY console fallback driver.
 
 Run inside the NixOS test VM, once per binary:
 
     python3 tty-driver.py <pinentry-binary> <report.json>
 
-Exercises the hardened TTY frontend contract (tasks 16.2-16.5):
+Exercises the hardened TTY frontend contract:
 
   * termios_flags  — while a GETPIN prompt is active on /dev/tty1, ECHO,
                      ICANON and ISIG MUST be cleared (raw mode).
   * signal_sigint  — SIGINT MUST restore tty1's pre-prompt cooked termios
-                     before the process exits (target hardening per design
-                     decision D8; the legacy oracle has no signal handlers
-                     and leaves the terminal raw — recorded, not asserted).
-  * signal_sigtstp — SIGTSTP: the target restores termios and exits
-                     (D8); the legacy default action stops the process with
+                     before the process exits (target hardening; the pinned
+                     oracle has no signal handlers and leaves the terminal
+                     raw — recorded, not asserted).
+  * signal_sigtstp — SIGTSTP: the target restores termios and exits; the
+                     pinned oracle takes the default action, stopping with
                      the terminal still raw — recorded, not asserted.
   * ansi_capture   — fixed 80x24 geometry on a pty: the rendered byte stream
                      MUST contain ESC[2J (clear), ESC[H (home) and the
                      ` > ` pin-row prefix with one '*' per entered secret
-                     byte; the stream is recorded for the byte-identical
-                     oracle-vs-target comparison in the testScript.
+                     byte; the stream is recorded for the testScript's ANSI
+                     structure assertions.
   * zero_leak      — RLIMIT_CORE MUST be 0; while the prompt holds the pin
                      "hunter2", a /proc/<pid>/mem scan counts the secret's
-                     resident copies (the target MUST be <= the oracle —
-                     strict-superset leak contract: the target may not leak
-                     where the baseline might).
+                     resident copies (the target MUST be <= the pinned
+                     oracle — strict-superset leak contract: the target may
+                     not leak where the oracle might).
 
-Headless startup constraint: both the legacy oracle and the current target
-initialize the frontend before the Assuan loop. Subtests that need a live
-prompt record "startup_refusal" instead of hanging; the testScript fails
-the gate with that diagnostic.
+Headless startup constraint: the pinned oracle initializes its frontend
+before the Assuan loop and cannot run in this VM. Subtests that need a
+live prompt record "startup_refusal" instead of hanging; the testScript
+fails the gate with that diagnostic.
 """
 
 import base64
@@ -211,7 +211,7 @@ class Session:
 # ---------------------------------------------------------------------------
 
 def termios_flags(binary):
-    """16.2: raw termios flags on tty1 while the prompt is active."""
+    """Raw termios flags on tty1 while the prompt is active."""
     baseline = stty_state()
     # Assuan over a pipe; frontend on /dev/tty1 (NOT the pty — this subtest
     # is about the virtual console).
@@ -260,7 +260,7 @@ def termios_flags(binary):
 
 
 def signal_test(binary, sig, signame):
-    """16.3: signal delivery while raw; termios MUST be restored on exit."""
+    """Signal delivery while raw; termios MUST be restored on exit."""
     baseline = stty_state()
     env = {k: v for k, v in os.environ.items() if k != "WAYLAND_DISPLAY"}
     proc = subprocess.Popen(
@@ -319,7 +319,7 @@ def signal_test(binary, sig, signame):
 
 
 def ansi_capture(binary):
-    """16.4: ANSI byte capture at fixed 80x24 geometry on a pty."""
+    """ANSI byte capture at fixed 80x24 geometry on a pty."""
     sess = Session(binary)
     result = {}
     greeting = sess.start_getpin(
@@ -349,7 +349,7 @@ def ansi_capture(binary):
 
 
 def zero_leak(binary):
-    """16.5: RLIMIT_CORE=0 + secret residency scan while the prompt holds it."""
+    """RLIMIT_CORE=0 + secret residency scan while the prompt holds it."""
     sess = Session(binary)
     result = {}
     greeting = sess.start_getpin()

@@ -22,7 +22,7 @@ The secret memory module MUST allocate a single page-aligned buffer via `libc::m
 
 ### Requirement: Coredump and fork protection
 
-The secret buffer page MUST be excluded from core dumps via `libc::madvise(MADV_DONTDUMP)` and wiped on fork via `libc::madvise(MADV_WIPEONFORK)` on Linux. `MADV_WIPEONFORK` failure MUST be treated as best-effort (log warning, continue); `MADV_DONTDUMP` failure MUST be a hard error (parity with legacy).
+The secret buffer page MUST be excluded from core dumps via `libc::madvise(MADV_DONTDUMP)` and wiped on fork via `libc::madvise(MADV_WIPEONFORK)` on Linux. `MADV_WIPEONFORK` failure MUST be treated as best-effort (log warning, continue); `MADV_DONTDUMP` failure MUST be a hard error.
 
 #### Scenario: MADV_DONTDUMP unavailable
 - **WHEN** `madvise(MADV_DONTDUMP)` returns an error other than `EAGAIN`

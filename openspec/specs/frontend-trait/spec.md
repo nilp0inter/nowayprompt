@@ -6,7 +6,7 @@ Defines the shared frontend abstraction, selection policy, and user events.
 
 ### Requirement: Frontend trait interface
 
-The module MUST define a `Frontend` trait that both the TTY fallback (Stage 2) and the Wayland frontend (Stage 3) implement. The trait MUST expose: `init(&mut self, cfg: &mut Config) -> Result<RawFd, FrontendError>` (opens the frontend, returns the poll-able fd); `deinit(&mut self)` (restores terminal/closes resources); `enter_mode(&mut self, mode: InterfaceMode) -> Result<(), FrontendError>` (enters a UI mode); `handle_event(&mut self) -> Result<Event, FrontendError>` (blocks for or drains an event); `flush(&mut self) -> Result<Option<Event>, FrontendError>` (drains pending non-blocking events; returns `Ok(None)` if none); `no_event(&mut self) -> Result<(), FrontendError>` (called when `poll` returned no frontend event; no-op for blocking frontends). The trait shape is frozen from Stage 2; Stage 3 adds a second implementor (`Wayland`) without reshaping the trait.
+The module MUST define a `Frontend` trait that both the TTY fallback and the Wayland frontend implement. The trait MUST expose: `init(&mut self, cfg: &mut Config) -> Result<RawFd, FrontendError>` (opens the frontend, returns the poll-able fd); `deinit(&mut self)` (restores terminal/closes resources); `enter_mode(&mut self, mode: InterfaceMode) -> Result<(), FrontendError>` (enters a UI mode); `handle_event(&mut self) -> Result<Event, FrontendError>` (blocks for or drains an event); `flush(&mut self) -> Result<Option<Event>, FrontendError>` (drains pending non-blocking events; returns `Ok(None)` if none); `no_event(&mut self) -> Result<(), FrontendError>` (called when `poll` returned no frontend event; no-op for blocking frontends). The trait shape is frozen: both implementors (`Tty` and `Wayland`) share exactly these six methods.
 
 #### Scenario: Frontend returns a pollable fd
 - **WHEN** `Frontend::init` succeeds
@@ -17,7 +17,7 @@ The module MUST define a `Frontend` trait that both the TTY fallback (Stage 2) a
 - **THEN** the frontend renders the pin-entry UI and is ready to accept input events
 
 #### Scenario: Wayland frontend implements Frontend
-- **WHEN** the Stage 3 `Wayland` struct is defined
+- **WHEN** the `Wayland` frontend struct is defined
 - **THEN** it implements all six `Frontend` trait methods and compiles against the frozen trait
 
 ### Requirement: Event enum
@@ -38,7 +38,7 @@ The module MUST define an `Event` enum with variants `None`, `UserOk`, `UserAbor
 
 ### Requirement: InterfaceMode enum
 
-The module MUST define an `InterfaceMode` enum with variants `None`, `GetPin`, `Message`. `None` is the idle state. `GetPin` renders the pin-entry input row. `Message` renders the confirm/message display. Legacy collapses `confirm` and `message` Assuan modes into the same frontend `Message` mode; the Rust port preserves this.
+The module MUST define an `InterfaceMode` enum with variants `None`, `GetPin`, `Message`. `None` is the idle state. `GetPin` renders the pin-entry input row. `Message` renders the confirm/message display. The `confirm` and `message` Assuan modes collapse into the same frontend `Message` mode, matching the pinned `pkgs.wayprompt` oracle.
 
 #### Scenario: GetPin mode renders pin input
 - **WHEN** `enter_mode(GetPin)` is called
@@ -50,7 +50,7 @@ The module MUST define an `InterfaceMode` enum with variants `None`, `GetPin`, `
 
 ### Requirement: flush and no_event asymmetry
 
-`flush` MUST return `Ok(None)` for the TTY frontend (blocking frontends have no pending non-blocking events to drain). `no_event` MUST be a no-op for the TTY frontend. The Wayland frontend (Stage 3) MUST override these to drain its event queue and render on idle: `flush` calls `prepare_read` + `display.flush()` and returns a pending `Event` or `Ok(None)`; `no_event` calls `cancel_read` to release the read lock when `poll` showed the frontend fd not readable. This asymmetry is faithful to legacy `Frontend.zig` where `flush`/`noEvent` are Wayland-only and TTY stubs them.
+`flush` MUST return `Ok(None)` for the TTY frontend (blocking frontends have no pending non-blocking events to drain). `no_event` MUST be a no-op for the TTY frontend. The Wayland frontend MUST override these to drain its event queue and render on idle: `flush` calls `prepare_read` + `display.flush()` and returns a pending `Event` or `Ok(None)`; `no_event` calls `cancel_read` to release the read lock when `poll` showed the frontend fd not readable. This asymmetry matches the pinned oracle contract: the flush/idle hooks are meaningful only on the event-driven Wayland frontend; the TTY frontend stubs them.
 
 #### Scenario: TTY flush returns None
 - **WHEN** `flush()` is called on the TTY frontend

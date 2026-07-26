@@ -1,7 +1,7 @@
-//! Layer-shell surface + software render pipeline (parity `Wayland.zig:740-1254`).
+//! Layer-shell surface + software render pipeline.
 //!
 //! Renders the prompt into `wl_shm` Argb8888 buffers with tiny-skia; text
-//! is shaped once per surface with cosmic-text (bundled DejaVu faces, D7)
+//! is shaped once per surface with cosmic-text (bundled DejaVu faces)
 //! and rasterized per render through swash. Each [`Surface::render`]
 //! composites background, labels, pin area and buttons, converts the
 //! premultiplied RGBA pixmap to Argb8888 byte order (`swap_rb`) and
@@ -35,13 +35,13 @@ use crate::frontend::{FrontendError, InterfaceMode};
 
 use super::WaylandState;
 
-// --- Fonts (D7) --------------------------------------------------------------
+// --- Fonts -------------------------------------------------------------------
 
 /// Bundled font faces: DejaVu Sans regular + bold, no system font scan.
 const FONT_REGULAR: &[u8] = include_bytes!("../../../assets/DejaVuSans.ttf");
 const FONT_BOLD: &[u8] = include_bytes!("../../../assets/DejaVuSans-Bold.ttf");
 
-/// Legacy `sans:size=14` / `sans:size=20`.
+/// Font sizes in pixels: 14 for regular text, 20 for large labels.
 const FONT_SIZE_REGULAR: f32 = 14.0;
 const FONT_SIZE_LARGE: f32 = 20.0;
 
@@ -54,7 +54,7 @@ fn new_font_system() -> FontSystem {
 
 // --- HotSpots ----------------------------------------------------------------
 
-/// A clickable region. Parity with `Wayland.zig:24-45`.
+/// A clickable region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HotSpot {
     pub effect: HotSpotEffect,
@@ -72,7 +72,7 @@ pub enum HotSpotEffect {
 }
 
 impl HotSpot {
-    /// Parity `Wayland.zig:33-36`.
+    /// Whether the point `(x, y)` is inside this hotspot.
     pub fn contains_point(&self, x: u32, y: u32) -> bool {
         x >= self.x
             && x <= self.x.saturating_add(self.width)
@@ -80,7 +80,7 @@ impl HotSpot {
             && y <= self.y.saturating_add(self.height)
     }
 
-    /// Trigger the effect (parity `Wayland.zig:38-44`).
+    /// Trigger the effect.
     pub fn act(&self, state: &mut WaylandState) {
         use super::ExitReason;
         let reason = match self.effect {
@@ -94,7 +94,7 @@ impl HotSpot {
 
 // --- Text views --------------------------------------------------------------
 
-/// One shaped text label (parity `Wayland.zig:48-217`, fcft → cosmic-text).
+/// One shaped text label.
 struct TextView {
     buffer: Buffer,
     width: u32,
@@ -102,10 +102,10 @@ struct TextView {
 }
 
 impl TextView {
-    /// Shape `text` and measure it (parity `Wayland.zig:62-143`).
+    /// Shape `text` and measure it.
     ///
     /// Labels above the regular size use the bundled bold face (title and
-    /// prompt, design D7). The line height mirrors fcft's `font.height`
+    /// prompt). The line height mirrors fcft's `font.height`
     /// for the bundled DejaVu metrics: `ceil((ascent + descent) * size /
     /// em) ≈ size * 1.2` (17px at 14, 24px at 20).
     fn new(font_system: &mut FontSystem, text: &str, font_size: f32) -> Self {
@@ -134,8 +134,7 @@ impl TextView {
         }
     }
 
-    /// Rasterize the label at `(x, y)` onto `pixmap` (parity
-    /// `Wayland.zig:155-216`).
+    /// Rasterize the label at `(x, y)` onto `pixmap`.
     fn draw(
         &self,
         pixmap: &mut PixmapMut<'_>,
@@ -252,9 +251,8 @@ fn blend_glyph(
     }
 }
 
-/// Shape one trimmed label into a [`TextView`] (parity
-/// `Wayland.zig:1567-1577`). `None` → no view; a label that is empty after
-/// trimming errors (parity fcft `error.EmptyString`, `Wayland.zig:63`).
+/// Shape one trimmed label into a [`TextView`]. `None` → no view; a label
+/// that is empty after trimming errors (matching fcft's `error.EmptyString`).
 fn make_view(
     font_system: &mut FontSystem,
     label: Option<&str>,
@@ -304,9 +302,9 @@ fn to_premul8(c: Colour) -> PremultipliedColorU8 {
     .unwrap_or(PremultipliedColorU8::TRANSPARENT)
 }
 
-/// Bordered rectangle (parity `Wayland.zig:1228-1253`): fill the interior,
-/// then the four border strips, un-antialiased like pixman
-/// `fillRectangles`. Coordinates are scaled by `scale`.
+/// Bordered rectangle: fill the interior, then the four border strips,
+/// un-antialiased like pixman `fillRectangles`. Coordinates are scaled by
+/// `scale`.
 #[allow(clippy::too_many_arguments)]
 fn bordered_rectangle(
     pixmap: &mut PixmapMut<'_>,
@@ -364,7 +362,7 @@ fn rounded_rect_path(x: f32, y: f32, w: f32, h: f32, r: f32) -> Option<Path> {
 
 // --- Surface -----------------------------------------------------------------
 
-/// The layer-shell surface. Parity with `Wayland.zig:740-1254`.
+/// The layer-shell surface.
 pub struct Surface {
     pub configured: bool,
     pub width: u32,
@@ -377,11 +375,11 @@ pub struct Surface {
     layer_surface: Option<ZwlrLayerSurfaceV1>,
     fractional_scale: Option<WpFractionalScaleV1>,
 
-    // Text shaping/rasterization state (cosmic-text + swash, D7).
+    // Text shaping/rasterization state (cosmic-text + swash).
     font_system: FontSystem,
     swash_cache: SwashCache,
 
-    // Shaped labels (parity the `Wayland` TextView fields).
+    // Shaped labels.
     title: Option<TextView>,
     description: Option<TextView>,
     prompt: Option<TextView>,
@@ -397,9 +395,7 @@ pub struct Surface {
 }
 
 impl Surface {
-    /// Create the layer-shell surface. Parity `Wayland.zig:756-786` (plus
-    /// the TextView shaping the legacy does in `initTextViews` before
-    /// `Surface.init`, `Wayland.zig:1567-1577`).
+    /// Create the layer-shell surface and shape its text views.
     pub fn new(
         state: &mut WaylandState,
         qh: &QueueHandle<WaylandState>,
@@ -457,8 +453,7 @@ impl Surface {
         };
         surface.calculate_size();
 
-        // The listener setup (`Wayland.zig:782`) is implicit in the
-        // `Dispatch` impls below.
+        // Event listeners are provided by the `Dispatch` impls below.
         let layer_surface = surface
             .layer_surface
             .as_ref()
@@ -474,8 +469,8 @@ impl Surface {
         Ok(surface)
     }
 
-    /// Parity `Wayland.zig:850-855` (the circle mask is a no-op here:
-    /// rounded corners are drawn per-render with paths).
+    /// Release owned proxies. There is no circle mask to free: rounded
+    /// corners are drawn per-render with paths.
     pub fn deinit(self) {
         if let Some(fs) = self.fractional_scale {
             fs.destroy();
@@ -488,13 +483,13 @@ impl Surface {
         }
     }
 
-    /// Find the hotspot containing `(x, y)`. Parity `Wayland.zig:857-864`.
+    /// Find the hotspot containing `(x, y)`.
     pub fn hotspot_from_point(&self, x: u32, y: u32) -> Option<&HotSpot> {
         self.hotspots.iter().find(|hs| hs.contains_point(x, y))
     }
 
     /// Compute the surface dimensions from the shaped labels and the UI
-    /// metrics. Parity `Wayland.zig:788-849`.
+    /// metrics.
     fn calculate_size(&mut self) {
         debug_assert!(self.hotspots.is_empty());
         let vp = u32::from(self.ui.vertical_padding);
@@ -549,7 +544,7 @@ impl Surface {
         }
     }
 
-    /// Render the surface (parity `Wayland.zig:887-1036`).
+    /// Render the surface.
     pub fn render(
         &mut self,
         state: &mut WaylandState,
@@ -567,8 +562,8 @@ impl Surface {
             .clone()
             .ok_or_else(|| FrontendError::Init("no shm".into()))?;
         let slot = state.buffer_pool.next_buffer(&shm, qh, width, height)?;
-        // Parity `Wayland.zig:914`: the pin square count tracks the secret
-        // buffer length; read before borrowing the buffer pool below.
+        // The pin square count tracks the secret buffer length; read it
+        // before borrowing the buffer pool below.
         let pin_len = if self.mode == InterfaceMode::GetPin {
             state.secbuf().len()
         } else {
@@ -649,7 +644,7 @@ impl Surface {
             y += errmessage.height + vp;
         }
 
-        // Buttons (parity `Wayland.zig:925-1028`). The hotspot list is
+        // Buttons. The hotspot list is
         // populated on the first render.
         let populate_hotspots = self.hotspots.is_empty();
 
@@ -774,7 +769,7 @@ impl Surface {
             }
         }
 
-        // Premultiplied RGBA8888 → Argb8888 little-endian byte order (D6).
+        // Premultiplied RGBA8888 → Argb8888 little-endian byte order.
         swap_rb(&mut mmap[..]);
 
         let wl_surface = self
@@ -790,9 +785,8 @@ impl Surface {
     }
 
     /// Background: bordered rectangle, with rounded corners when
-    /// configured (parity `Wayland.zig:1038-1186`; the legacy circle-mask
-    /// compositing is replaced by a rounded-rect path fill + stroke,
-    /// behavioural parity per D6).
+    /// configured. Rounded corners use a rounded-rect path fill + stroke
+    /// rather than a circle-mask composite.
     fn draw_background(
         &self,
         pixmap: &mut PixmapMut<'_>,
@@ -811,7 +805,7 @@ impl Surface {
             let Some(path) = rounded_rect_path(0.0, 0.0, w, h, r) else {
                 return;
             };
-            // Anti-aliased (grayscale AA, D7); `Paint::default()` has
+            // Anti-aliased (grayscale AA); `Paint::default()` has
             // `anti_alias = true`.
             let mut paint = Paint {
                 shader: Shader::SolidColor(to_sk_color(colours.background)),
@@ -847,8 +841,7 @@ impl Surface {
         }
     }
 
-    /// Draw the pin area and return the vertical space consumed (parity
-    /// `Wayland.zig:1188-1226`).
+    /// Draw the pin area and return the vertical space consumed.
     fn draw_pin_area(
         &self,
         pixmap: &mut PixmapMut<'_>,
@@ -898,8 +891,7 @@ impl Surface {
 }
 
 /// Convenience function for input handlers: takes the surface out of state,
-/// renders it, puts it back, and aborts on error (parity with legacy pattern
-/// where input calls `self.w.surface.?.render() catch self.w.abort(...)`).
+/// renders it, puts it back, and aborts on error.
 pub fn render_surface(state: &mut WaylandState, qh: &QueueHandle<WaylandState>) {
     use super::ExitReason;
     if let Some(mut surface) = state.surface.take() {
@@ -914,7 +906,7 @@ pub fn render_surface(state: &mut WaylandState, qh: &QueueHandle<WaylandState>) 
 // --- Pixel format -------------------------------------------------------------
 
 /// Swap R and B channels in place, converting tiny-skia's premultiplied
-/// RGBA8888 byte order to Wayland's little-endian Argb8888 (D6).
+/// RGBA8888 byte order to Wayland's little-endian Argb8888.
 pub fn swap_rb(data: &mut [u8]) {
     for px in data.chunks_exact_mut(4) {
         px.swap(0, 2);
@@ -948,9 +940,9 @@ impl Dispatch<ZwlrLayerSurfaceV1, ()> for WaylandState {
         use super::ExitReason;
         use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::Event;
         match event {
-            // Parity `Wayland.zig:868-878`: mark configured, ack, render.
-            // The compositor-requested sizes are intentionally ignored
-            // (parity).
+            // Mark configured, ack, render. The compositor-requested
+            // sizes are intentionally ignored; the surface computes its
+            // own size.
             Event::Configure { serial, .. } => {
                 if let Some(mut surface) = state.surface.take() {
                     surface.configured = true;
@@ -959,7 +951,7 @@ impl Dispatch<ZwlrLayerSurfaceV1, ()> for WaylandState {
                 layer_surface.ack_configure(serial);
                 render_surface(state, qh);
             }
-            // Parity `Wayland.zig:880-883`.
+            // The compositor closed the surface: abort.
             Event::Closed => {
                 state.abort(ExitReason::Error(FrontendError::Init(
                     "layer surface closed".into(),
@@ -979,13 +971,12 @@ impl Dispatch<WpFractionalScaleV1, ()> for WaylandState {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        // Parity `Wayland.zig:749`: legacy pins `scale = 1` (fractional
-        // scale support is an unimplemented TODO there). The SHM buffer is
-        // allocated and rendered at logical size with `set_buffer_scale(1)`,
-        // so honoring `preferred_scale` here would shrink the surface
-        // (compositor treats a logical-size buffer as high-DPI). Ignore the
-        // event; crisp HiDPI rendering would require a physical-size buffer
-        // + scaled drawing and is deferred (design D8 revised).
+        // The scale is pinned to 1: the SHM buffer is allocated and
+        // rendered at logical size with `set_buffer_scale(1)`, so honoring
+        // `preferred_scale` here would shrink the surface (the compositor
+        // treats a logical-size buffer as high-DPI). Ignore the event;
+        // crisp HiDPI rendering would require a physical-size buffer +
+        // scaled drawing.
     }
 }
 

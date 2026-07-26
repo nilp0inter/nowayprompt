@@ -1,6 +1,4 @@
-//! TTY fallback frontend using raw `libc::termios`.
-//!
-//! 100% behavioral parity with `legacy/src/TTY.zig`: raw-mode terminal
+//! TTY fallback frontend using raw `libc::termios`: raw-mode terminal
 //! input, ANSI rendering, and async-signal-safe terminal restore on
 //! fatal signals.
 
@@ -150,9 +148,8 @@ pub enum TtyInput {
 
 /// Parse a raw byte buffer into a sequence of [`TtyInput`] tokens.
 ///
-/// Parity with legacy spoon `inputParser` behaviour: escape sequences
-/// starting with `\x1b` followed by more bytes are consumed as `Unknown`;
-/// a standalone `\x1b` (last byte) is `Escape`.
+/// Escape sequences starting with `\x1b` followed by more bytes are consumed
+/// as `Unknown`; a standalone `\x1b` (last byte) is `Escape`.
 pub fn parse_input(buf: &[u8]) -> Vec<TtyInput> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -318,9 +315,8 @@ fn render_content<W: Write>(
     w.write_all(attr.sgr().as_bytes())?;
     for l in content.split('\n') {
         if l.is_empty() && content.ends_with('\n') && *line > 0 {
-            // Skip trailing empty split from a final newline.
-            // Actually, legacy LineIterator returns None for trailing \n.
-            // We replicate: split gives an empty trailing element.
+            // `split` yields an empty trailing element for a final newline;
+            // skip it.
             break;
         }
         if *line >= height as usize {
@@ -408,7 +404,7 @@ fn render_pin_row<W: Write>(
     for _ in 0..empty {
         w.write_all(b"_")?;
     }
-    // Legacy does line += 2 (the pin row + a blank line).
+    // Advance past the pin row and its trailing blank line.
     *line += 2;
     Ok(())
 }
@@ -417,10 +413,8 @@ fn render_pin_row<W: Write>(
 // Tty frontend
 // ---------------------------------------------------------------------------
 
-/// TTY fallback frontend using raw `libc::termios`.
-///
-/// Parity with `legacy/src/TTY.zig`. Renders ANSI output to the tty fd
-/// and reads raw input from the same fd.
+/// TTY fallback frontend using raw `libc::termios`. Renders ANSI output to
+/// the tty fd and reads raw input from the same fd.
 pub struct Tty {
     fd: Option<RawFd>,
     raw: Option<RawTty>,

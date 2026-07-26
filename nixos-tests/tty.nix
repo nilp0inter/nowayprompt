@@ -1,6 +1,6 @@
-# Stage 3: TTY fallback contract.
+# TTY fallback contract.
 #
-# The legacy oracle initializes before it can receive OPTION ttyname and is
+# The pinned oracle initializes before it can receive OPTION ttyname and is
 # therefore unavailable in a headless VM. The Rust implementation intentionally
 # defers selection; this gate exercises its reachable TTY fallback directly.
 { lib, nixpkgs, pkgs, selfpkgs }:
@@ -10,7 +10,7 @@ let
   driver = ./tty-driver.py;
 in
 {
-  name = "stage-3-tty";
+  name = "tty";
 
   nodes.machine = { pkgs, ... }: {
     virtualisation.memorySize = 1024;

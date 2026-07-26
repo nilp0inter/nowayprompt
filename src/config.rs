@@ -5,12 +5,18 @@
 //! comment stripping, hyphen-to-underscore field normalization, and hex
 //! `0xRRGGBB` / `0xRRGGBBAA` to premultiplied-alpha `Colour` conversion.
 //!
-//! 100% behavioral parity with `legacy/src/Config.zig`.
+//! The file format is the `wayprompt.5` INI dialect. Config file resolution
+//! is nowayprompt-primary with a silent wayprompt fallback: within the
+//! chosen config base, an existing `nowayprompt/config.ini` wins; otherwise
+//! `wayprompt/config.ini` is used.
 
 use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+
+/// File name shared by both configuration candidates within a base.
+const CONFIG_FILE_NAME: &str = "config.ini";
 
 /// Error returned by [`Config::parse`] and the colour/integer parsers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,8 +55,8 @@ impl From<std::io::Error> for ConfigError {
     }
 }
 
-/// Premultiplied-alpha 16-bit RGBA colour. Parity with `pixman.Color` layout
-/// produced by legacy `pixmanColourFromRGB`.
+/// Premultiplied-alpha 16-bit RGBA colour in the `pixman` colour layout
+/// used for Wayland rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Colour {
     pub red: u16,
@@ -62,7 +68,7 @@ pub struct Colour {
 /// Parse a `0xRRGGBB` (6 hex digits) or `0xRRGGBBAA` (8 hex digits) string into
 /// a premultiplied-alpha [`Colour`].
 ///
-/// Matches legacy `pixmanColourFromRGB` exactly:
+/// Conversion invariants:
 /// - 6-digit form implies alpha `0xff`.
 /// - `channel_16 = (channel_8 as f32 / 255.0 * 65535.0) as u16` (truncation).
 /// - `premul_16 = (channel_16 as f32 * alpha_16 as f32 / 0xffff as f32) as u16`.
@@ -90,10 +96,9 @@ pub fn parse_colour(hex: &str) -> Result<Colour, ConfigError> {
         message: format!("bad colour: '{hex}' (invalid hex digits)"),
     })?;
 
-    // Pack into a u32. 6-digit: shift left 8 and OR 0xff (legacy behaviour).
-    // 8-digit: use as-is. The u32 is then byte-cast in *little-endian* order
-    // in the legacy code; here we extract channels directly (endianness
-    // independent) by shifting.
+    // Pack into a u32. 6-digit: shift left 8 and OR 0xff so alpha defaults
+    // to opaque; 8-digit: use as-is. Channels are then extracted by direct
+    // shifting (endianness independent).
     let (r, g, b, a) = if hex.len() == 8 {
         // 0xRRGGBB -> r=high byte, g=mid, b=low, a=0xff.
         let r8 = ((parsed >> 16) & 0xff) as u8;
@@ -109,8 +114,8 @@ pub fn parse_colour(hex: &str) -> Result<Colour, ConfigError> {
         (r8, g8, b8, a8)
     };
 
-    // Premultiplied alpha math (parity with legacy `@intFromFloat`, i.e.
-    // truncation toward zero, not rounding).
+    // Premultiplied alpha math: float-to-int conversion truncates toward
+    // zero (Rust `as` cast semantics), rather than rounding.
     let alpha_f = (a as f32 / 255.0) * 65535.0;
     let alpha = alpha_f as u16;
     let red = ((r as f32 / 255.0) * 65535.0 * alpha as f32 / 0xffff as f32) as u16;
@@ -125,10 +130,10 @@ pub fn parse_colour(hex: &str) -> Result<Colour, ConfigError> {
     })
 }
 
-/// Compare a Rust field name (using `_`) with a config variable (using `-`)
-/// per legacy `fieldEql` semantics: positions where the field has `_` accept
-/// `-` in the variable; all other positions must match exactly. `_` in the
-/// variable does NOT satisfy `_` in the field.
+/// Compare a Rust field name (using `_`) with a config variable (using
+/// `-`): positions where the field has `_` accept `-` in the variable; all
+/// other positions must match exactly. `_` in the variable does NOT satisfy
+/// `_` in the field.
 pub fn field_eq(field: &str, variable: &str) -> bool {
     if field.len() != variable.len() {
         return false;
@@ -246,8 +251,8 @@ impl WaylandUi {
     }
 }
 
-/// Wayland colours populated from `[colours]`. Defaults match legacy
-/// `comptimePixmanColourFromRGB` defaults.
+/// Wayland colours populated from `[colours]`. Defaults are those
+/// documented in `wayprompt.5`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WaylandColours {
     pub background: Colour,
@@ -270,7 +275,7 @@ pub struct WaylandColours {
 
 impl Default for WaylandColours {
     fn default() -> Self {
-        // Defaults from `wayprompt.5` and legacy `WaylandColours` struct.
+        // Defaults documented in `wayprompt.5`.
         Self {
             background: parse_colour("0xffffff").unwrap(),
             border: parse_colour("0x000000").unwrap(),
@@ -353,7 +358,7 @@ pub struct Config {
     pub wayland_display: Option<String>,
 }
 
-/// Section tracking during parsing. Parity with legacy `Section` enum.
+/// Section tracking during parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Section {
     None,
@@ -362,34 +367,74 @@ enum Section {
 }
 
 impl Config {
-    /// Resolve the config file path per `wayprompt.5`:
-    /// `$XDG_CONFIG_HOME/wayprompt/config.ini` →
-    /// `$HOME/.config/wayprompt/config.ini` →
-    /// `/etc/wayprompt/config.ini`.
+    /// Resolve the config file path.
+    ///
+    /// The configuration base is chosen exactly once: `$XDG_CONFIG_HOME` when
+    /// set and nonempty, else `$HOME/.config` when `$HOME` is set and
+    /// nonempty, else `/etc`. Within that single base the first existing
+    /// candidate wins: `nowayprompt/config.ini`, then the compatibility
+    /// fallback `wayprompt/config.ini`. Non-selected bases are never
+    /// consulted. If neither candidate exists, [`Self::parse`] silently keeps
+    /// defaults.
+    ///
+    /// The `nowayprompt`-first order is an intentional, documented
+    /// target-only divergence from `pkgs.wayprompt`, which reads only
+    /// `wayprompt/config.ini`.
     pub fn config_path() -> PathBuf {
-        if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-            if !xdg.is_empty() {
-                return Path::new(&xdg).join("wayprompt").join("config.ini");
-            }
-        }
-        if let Ok(home) = std::env::var("HOME") {
-            if !home.is_empty() {
-                return Path::new(&home).join(".config/wayprompt/config.ini");
-            }
-        }
-        PathBuf::from("/etc/wayprompt/config.ini")
+        Self::config_path_from(
+            std::env::var("XDG_CONFIG_HOME").ok().as_deref(),
+            std::env::var("HOME").ok().as_deref(),
+        )
     }
 
-    /// Parse the config file at [`Self::config_path`]. If no file exists,
-    /// succeeds silently (defaults remain). Otherwise reads line-by-line
-    /// and dispatches assignments by section.
+    /// Pure form of [`Self::config_path`] over explicit environment inputs.
+    fn config_path_from(xdg_config_home: Option<&str>, home: Option<&str>) -> PathBuf {
+        Self::select_config_in(&Self::config_base(xdg_config_home, home))
+    }
+
+    /// Choose the single configuration base: nonempty `xdg_config_home`,
+    /// else nonempty `home` + `/.config`, else `/etc`.
+    fn config_base(xdg_config_home: Option<&str>, home: Option<&str>) -> PathBuf {
+        match xdg_config_home.filter(|v| !v.is_empty()) {
+            Some(xdg) => PathBuf::from(xdg),
+            None => match home.filter(|v| !v.is_empty()) {
+                Some(home) => Path::new(home).join(".config"),
+                None => PathBuf::from("/etc"),
+            },
+        }
+    }
+
+    /// Within one `base`, select `nowayprompt/config.ini` when that path
+    /// exists — regardless of content: empty, malformed, unreadable, or a
+    /// directory all win — otherwise silently fall back to
+    /// `wayprompt/config.ini`. Existence alone decides; errors parsing the
+    /// selected file never fall through to the fallback.
+    fn select_config_in(base: &Path) -> PathBuf {
+        let primary = base.join("nowayprompt").join(CONFIG_FILE_NAME);
+        if primary.exists() {
+            primary
+        } else {
+            base.join("wayprompt").join(CONFIG_FILE_NAME)
+        }
+    }
+
+    /// Parse the config file chosen by [`Self::config_path`]. If the selected
+    /// candidate does not exist, succeeds silently (defaults remain).
+    /// Otherwise reads line-by-line and dispatches assignments by section.
+    /// Parse and I/O errors from the selected file propagate; the fallback
+    /// candidate is never consulted after selection.
     pub fn parse(&mut self) -> Result<(), ConfigError> {
-        let path = Self::config_path();
+        self.parse_at(&Self::config_path())
+    }
+
+    /// Parse the config file at `path`; a missing file silently keeps
+    /// defaults. Diagnostics report this exact selected path.
+    fn parse_at(&mut self, path: &Path) -> Result<(), ConfigError> {
         if !path.exists() {
             return Ok(());
         }
         let path_str = path.to_string_lossy().into_owned();
-        let file = File::open(&path)?;
+        let file = File::open(path)?;
         let reader = BufReader::new(file);
         self.parse_from(reader, &path_str)
     }
@@ -428,9 +473,9 @@ impl Config {
             return Ok(());
         }
 
-        // Strip inline `#` comment. Parity with `zig-ini`: anything after an
-        // unquoted `#` is a comment. We treat `#` as comment-start anywhere
-        // (legacy `zig-ini` uses `#` as the comment character).
+        // Strip inline `#` comment: anything after an unquoted `#` is a
+        // comment. `#` starts a comment anywhere in the line, per the
+        // `wayprompt.5` INI dialect.
         let content = match trimmed.find('#') {
             Some(idx) => trimmed[..idx].trim_end(),
             None => trimmed,
@@ -462,7 +507,7 @@ impl Config {
         };
         let key = content[..eq_idx].trim();
         let mut value = content[eq_idx + 1..].trim();
-        // Strip trailing semicolon (legacy `.semicolon` tokenization mode).
+        // Strip trailing semicolon (INI values may terminate with `;`).
         if value.ends_with(';') {
             value = value[..value.len() - 1].trim_end();
         }
@@ -492,10 +537,8 @@ impl Config {
 
     /// Clear all Assuan-populated label fields to `None`.
     ///
-    /// Parity with legacy `config.reset(alloc)` as called by the Assuan
-    /// `RESET` command — the legacy also resets `wayland_ui` but that is
-    /// config-file state, not Assuan runtime state; we reset only labels
-    /// for parity with the Assuan `RESET` command semantics.
+    /// The Assuan `RESET` command clears only runtime label state; file
+    /// config (`wayland_ui`, `wayland_colours`) is untouched.
     pub fn reset(&mut self) {
         self.labels.title = None;
         self.labels.description = None;
@@ -514,10 +557,9 @@ mod tests {
 
     #[test]
     fn field_eq_hyphen_matches_underscore() {
-        // Parity with legacy `fieldEql` test.
         assert!(field_eq("test_test", "test-test"));
         assert!(!field_eq("test_testA", "test-testB"));
-        // Extra parity cases.
+        // Boundary cases.
         assert!(field_eq("pin_square_size", "pin-square-size"));
         assert!(!field_eq("pin_square", "pin_squar"));
         assert!(!field_eq("border", "bordery"));
@@ -587,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_colour_legacy_default_error_text() {
+    fn parse_colour_default_error_text() {
         // 0xe0002b: r=0xe0, g=0, b=0x2b, a=0xff.
         let c = parse_colour("0xe0002b").unwrap();
         // alpha = 65535.
@@ -610,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn config_defaults_match_legacy() {
+    fn config_defaults_match_wayprompt5() {
         let cfg = Config::default();
         let default_colours = WaylandColours::default();
         assert_eq!(cfg.wayland_colours, default_colours);
@@ -794,5 +836,153 @@ corner-radius = 8
         let input = "\n  \n# comment\n   # spaced comment\n";
         let mut cfg = Config::default();
         cfg.parse_from(Cursor::new(input), "test.ini").unwrap();
+    }
+
+    // --- Config path selection (nowayprompt-primary, wayprompt fallback) ---
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TEMP_SEQ: AtomicUsize = AtomicUsize::new(0);
+
+    /// Unique scratch base directory; avoids process-global env mutation and
+    /// is parallel-test safe.
+    fn temp_base() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "nowayprompt-config-test-{}-{}",
+            std::process::id(),
+            TEMP_SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_candidate(base: &Path, app: &str, contents: &str) -> PathBuf {
+        let dir = base.join(app);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.ini");
+        std::fs::write(&path, contents).unwrap();
+        path
+    }
+
+    #[test]
+    fn base_selection_precedence() {
+        assert_eq!(
+            Config::config_base(Some("/xdg"), Some("/home")),
+            PathBuf::from("/xdg")
+        );
+        assert_eq!(
+            Config::config_base(Some(""), Some("/home")),
+            PathBuf::from("/home/.config")
+        );
+        assert_eq!(
+            Config::config_base(None, Some("/home")),
+            PathBuf::from("/home/.config")
+        );
+        assert_eq!(
+            Config::config_base(Some("/xdg"), None),
+            PathBuf::from("/xdg")
+        );
+        assert_eq!(
+            Config::config_base(Some(""), Some("")),
+            PathBuf::from("/etc")
+        );
+        assert_eq!(Config::config_base(None, None), PathBuf::from("/etc"));
+    }
+
+    #[test]
+    fn candidates_never_cross_bases() {
+        let xdg = temp_base();
+        let xdg_str = xdg.to_str().unwrap();
+        // XDG base wins outright: nothing from HOME or /etc is constructed.
+        assert_eq!(
+            Config::config_path_from(Some(xdg_str), Some("/home")),
+            xdg.join("wayprompt").join("config.ini")
+        );
+        // Empty XDG falls to HOME/.config, not /etc.
+        assert_eq!(
+            Config::config_path_from(Some(""), Some("/home")),
+            PathBuf::from("/home/.config/wayprompt/config.ini")
+        );
+        // No usable base variable: /etc only.
+        assert_eq!(
+            Config::config_path_from(None, None),
+            PathBuf::from("/etc/wayprompt/config.ini")
+        );
+    }
+
+    #[test]
+    fn primary_wins_over_wayprompt_fallback() {
+        let base = temp_base();
+        let primary = write_candidate(&base, "nowayprompt", "[general]\nborder = 3;\n");
+        write_candidate(&base, "wayprompt", "[general]\nborder = 7;\n");
+        assert_eq!(Config::select_config_in(&base), primary);
+
+        let mut cfg = Config::default();
+        cfg.parse_at(&Config::select_config_in(&base)).unwrap();
+        assert_eq!(cfg.wayland_ui.border, 3);
+    }
+
+    #[test]
+    fn wayprompt_used_when_primary_absent() {
+        let base = temp_base();
+        let legacy = write_candidate(&base, "wayprompt", "[general]\nborder = 7;\n");
+        assert_eq!(Config::select_config_in(&base), legacy);
+
+        let mut cfg = Config::default();
+        cfg.parse_at(&Config::select_config_in(&base)).unwrap();
+        assert_eq!(cfg.wayland_ui.border, 7);
+    }
+
+    #[test]
+    fn no_candidate_silently_keeps_defaults() {
+        let base = temp_base();
+        let selected = Config::select_config_in(&base);
+        assert_eq!(selected, base.join("wayprompt").join("config.ini"));
+        assert!(!selected.exists());
+
+        let mut cfg = Config::default();
+        cfg.parse_at(&selected).unwrap();
+        assert_eq!(cfg.wayland_ui, WaylandUi::default());
+        assert_eq!(cfg.wayland_colours, WaylandColours::default());
+    }
+
+    #[test]
+    fn existing_primary_wins_regardless_of_content() {
+        // Malformed primary: selected, and its parse error propagates with
+        // the selected full path; the valid fallback is never read.
+        let base = temp_base();
+        let primary = write_candidate(&base, "nowayprompt", "garbage\n");
+        write_candidate(&base, "wayprompt", "[general]\nborder = 7;\n");
+        assert_eq!(Config::select_config_in(&base), primary);
+        let mut cfg = Config::default();
+        let err = cfg.parse_at(&Config::select_config_in(&base)).unwrap_err();
+        match err {
+            ConfigError::BadConfig { path, line, .. } => {
+                assert_eq!(path, primary.to_string_lossy().into_owned());
+                assert_eq!(line, 1);
+            }
+            other => panic!("expected BadConfig, got {other:?}"),
+        }
+        assert_eq!(cfg.wayland_ui, WaylandUi::default());
+
+        // Empty primary: an existing winner. The malformed fallback is never
+        // read, so parsing succeeds with defaults.
+        let base = temp_base();
+        let primary = write_candidate(&base, "nowayprompt", "");
+        write_candidate(&base, "wayprompt", "garbage\n");
+        assert_eq!(Config::select_config_in(&base), primary);
+        let mut cfg = Config::default();
+        cfg.parse_at(&Config::select_config_in(&base)).unwrap();
+        assert_eq!(cfg.wayland_ui, WaylandUi::default());
+
+        // Directory primary: existence alone selects it; opening it is an
+        // I/O error, not a fallback.
+        let base = temp_base();
+        let primary_dir = base.join("nowayprompt");
+        std::fs::create_dir_all(primary_dir.join("config.ini")).unwrap();
+        let primary = primary_dir.join("config.ini");
+        assert_eq!(Config::select_config_in(&base), primary);
+        let mut cfg = Config::default();
+        assert!(cfg.parse_at(&Config::select_config_in(&base)).is_err());
     }
 }

@@ -40,7 +40,7 @@ jobs:
         run: nix develop --command cargo build --release
 
   nixos-tests:
-    name: nixosTests · stage-1 · stage-2 · stage-3
+    name: nixosTests · cli-config · assuan · tty · wayland
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -57,19 +57,20 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # Staggered parity oracles: these FAIL at documented parity gates
-      # until the Rust target reaches 1:1 behavioral parity with the
-      # pinned pkgs.wayprompt (nixos-26.05 v0.1.2) baseline. Run them so
-      # regressions and progress are visible in CI; convert to hard
-      # gates (remove continue-on-error) once each stage passes.
-      - name: Run nixosTests (stage-1-cli-config)
-        continue-on-error: true
-        run: nix build .#nixosTests.stage-1-cli-config --print-build-logs
+      # Permanent differential parity oracles: each test runs the in-tree
+      # Rust target against the pinned pkgs.wayprompt (nixos-26.05) baseline
+      # and is a hard regression gate — any behavioral drift fails CI.
+      - name: Run nixosTests (cli-config)
+        run: nix build .#nixosTests.cli-config --print-build-logs
 
-      - name: Run nixosTests (stage-2-assuan)
-        continue-on-error: true
-        run: nix build .#nixosTests.stage-2-assuan --print-build-logs
+      - name: Run nixosTests (assuan)
+        run: nix build .#nixosTests.assuan --print-build-logs
 
-      - name: Run nixosTests (stage-3-tty)
-        continue-on-error: true
-        run: nix build .#nixosTests.stage-3-tty --print-build-logs
+      - name: Run nixosTests (tty)
+        run: nix build .#nixosTests.tty --print-build-logs
+
+      - name: Run nixosTests (wayland)
+        run: nix build .#nixosTests.wayland --print-build-logs
+
+      - name: Package interface check
+        run: nix flake check

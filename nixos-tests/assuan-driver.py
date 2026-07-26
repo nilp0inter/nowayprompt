@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Stage 2 Assuan IPC differential driver.
+"""Assuan IPC driver.
 
 Run inside the NixOS test VM, once per binary:
 
     python3 assuan-driver.py <pinentry-binary> <report.json>
 
-Drives the binary through the scripted Assuan stream defined by tasks 15.2
+Drives the binary through a scripted Assuan stream
 and records a JSON transcript report:
 
     {
@@ -27,13 +27,13 @@ Mechanics:
     pair (80x24 winsize). The pty slave path is handed to the binary via
     `OPTION ttyname=<pts>`; keystrokes for GETPIN/CONFIRM/MESSAGE are written
     to the pty master, and everything the binary renders to the pty is
-    captured (stage 3 reuses the same capture technique).
+    captured (tty-driver.py reuses the same capture technique).
   * The pty master is drained continuously — the TTY render path writes to
     the tty fd, and an undrained ~8 KiB pty buffer would deadlock the binary
     mid-render.
-  * WAYLAND_DISPLAY is scrubbed from the environment: the differential
-    contract is the TTY/Assuan path, and the legacy binary would otherwise
-    attempt a Wayland connection.
+  * WAYLAND_DISPLAY is scrubbed from the environment: the contract under
+    test is the TTY/Assuan path, and either binary would otherwise attempt
+    a Wayland connection.
   * Per-step and per-session timeouts keep the VM test from hanging on a
     binary that refuses to start or stalls mid-prompt.
   * GETPIN/CONFIRM/MESSAGE produce no stdout at command receipt — the
@@ -41,8 +41,8 @@ Mechanics:
     `("!key", bytes)` followed by `("!wait", n, label)` to name the response
     after the keystroke that elicits it.
 
-The comparison and tolerance contract live in stage-2-assuan.nix's
-testScript; this driver only records.
+The assertions live in the Assuan parity test's testScript; this driver only
+records.
 """
 
 import base64
@@ -280,7 +280,7 @@ def run_steps(sess, plan, steps):
 
 
 # ---------------------------------------------------------------------------
-# Session definitions (tasks 15.2 / 15.3).
+# Session definitions.
 # ---------------------------------------------------------------------------
 
 NOT_IMPL = [
@@ -383,13 +383,13 @@ def run_session(binary, plan_fn):
 
 
 def partial_line_session(binary):
-    """Partial-line stdin handling (design decision D9).
+    """Partial-line stdin handling.
 
     Sends `SETT`, waits, then completes `ITLE X\\n`. A buffering reader
-    (the target) assembles one SETTITLE command → OK; the legacy
-    read()-and-split loop mis-splits it into two unknown commands →
-    two ERR 536871187 lines. The comparator documents this intentional
-    divergence; this session only records each binary's behavior.
+    (the target) assembles one SETTITLE command → OK; the pinned oracle's
+    read()-and-split loop mis-splits it into two unknown commands → two
+    ERR 536871187 lines. The Assuan parity test asserts the target's
+    buffered assembly; this session only records each binary's behavior.
     """
     sess = Session(binary)
     if greeting(sess) is None:
@@ -451,10 +451,10 @@ def main():
 
     if greet is None:
         report["startup"]["note"] = (
-            "binary exited before emitting the greeting — both the legacy "
-            "oracle and the current target initialize their frontend before "
-            "the Assuan loop, so a headless VM (no WAYLAND_DISPLAY, no "
-            "pre-configured tty) cannot start either binary"
+            "binary exited before emitting the greeting — a binary that "
+            "initializes its frontend before the Assuan loop (as the pinned "
+            "oracle does) cannot start in a headless VM (no WAYLAND_DISPLAY, "
+            "no pre-configured tty)"
         )
         with open(out_path, "w") as f:
             json.dump(report, f, indent=2)

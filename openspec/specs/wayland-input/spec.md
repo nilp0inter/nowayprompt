@@ -6,7 +6,7 @@ Defines the Wayland frontend's input stack: XKB keymap compilation from composit
 
 ### Requirement: XKB keymap compilation from mmap'd fd
 
-The `src/frontend/wayland/input.rs` module MUST handle the `wl_keyboard.keymap` event by memory-mapping the fd with `memmap2::MmapOptions::new().len(size).map(&file)` (`MAP_PRIVATE` read-only, matching legacy), compiling the keymap via `xkbcommon::xkb::Keymap::new_from_string` with `KEYMAP_FORMAT_TEXT_V1`, creating an `xkb::State`, and dropping the mmap (parity with `Wayland.zig:445-474`). No `SIGBUS` guard (D2).
+The `src/frontend/wayland/input.rs` module MUST handle the `wl_keyboard.keymap` event by memory-mapping the fd with `memmap2::MmapOptions::new().len(size).map(&file)` (`MAP_PRIVATE` read-only), compiling the keymap via `xkbcommon::xkb::Keymap::new_from_string` with `KEYMAP_FORMAT_TEXT_V1`, creating an `xkb::State`, and dropping the mmap. The keymap mapping MUST NOT install a `SIGBUS` guard.
 
 #### Scenario: keymap compiled from fd
 - **WHEN** a `wl_keyboard.keymap` event arrives with format `xkb_v1`, fd F, size S
@@ -14,11 +14,11 @@ The `src/frontend/wayland/input.rs` module MUST handle the `wl_keyboard.keymap` 
 
 #### Scenario: unsupported keymap format
 - **WHEN** the keymap format is not `xkb_v1`
-- **THEN** the frontend aborts with an unsupported-format error (parity with `Wayland.zig:447-450`)
+- **THEN** the frontend aborts with an unsupported-format error
 
 ### Requirement: Modifier state sync via wl_keyboard.modifiers
 
-The `Seat` MUST update its `xkb::State` via `state.update_mask(depressed, latched, locked, 0, 0, group)` on each `wl_keyboard.modifiers` event (parity with `Wayland.zig:475-479`). The client MUST NOT derive modifiers from physical key events.
+The `Seat` MUST update its `xkb::State` via `state.update_mask(depressed, latched, locked, 0, 0, group)` on each `wl_keyboard.modifiers` event. The client MUST NOT derive modifiers from physical key events.
 
 #### Scenario: modifier mask applied
 - **WHEN** a `modifiers` event arrives with depressed Ctrl
@@ -26,7 +26,7 @@ The `Seat` MUST update its `xkb::State` via `state.update_mask(depressed, latche
 
 ### Requirement: Evdev keycode +8 offset and keysym lookup
 
-On a `wl_keyboard.key` press event, the module MUST add 8 to the raw keycode, call `xkb::State::key_get_one_sym`, and dispatch on the keysym (parity with `Wayland.zig:480-528`). Ctrl+BackSpace/u/w clears the pin buffer; Return → `UserOk`; Escape → `UserAbort`; BackSpace deletes one char; Delete is a no-op; other keys append UTF-8 via `key_get_utf8` to the `SecretBuffer`.
+On a `wl_keyboard.key` press event, the module MUST add 8 to the raw keycode, call `xkb::State::key_get_one_sym`, and dispatch on the keysym. Ctrl+BackSpace/u/w clears the pin buffer; Return → `UserOk`; Escape → `UserAbort`; BackSpace deletes one char; Delete is a no-op; other keys append UTF-8 via `key_get_utf8` to the `SecretBuffer`.
 
 #### Scenario: Return emits UserOk
 - **WHEN** the user presses Return (keysym `Return`)
@@ -50,7 +50,7 @@ On a `wl_keyboard.key` press event, the module MUST add 8 to the raw keycode, ca
 
 ### Requirement: Pointer and touch hotspot hit-testing
 
-The `Seat` MUST bind `wl_pointer` and `wl_touch`, track motion/down/up events, and on a button press/touch-down consult the `Surface` hotspot list to determine the `Effect` (cancel/notok/ok), mapping it to `UserAbort`/`UserNotOk`/`UserOk` (parity with `Wayland.zig:285-635`). Cursor shape MUST be set via `wp_cursor_shape_manager_v1`.
+The `Seat` MUST bind `wl_pointer` and `wl_touch`, track motion/down/up events, and on a button press/touch-down consult the `Surface` hotspot list to determine the `HotSpotEffect` (Cancel/NotOk/Ok), mapping it to `UserAbort`/`UserNotOk`/`UserOk`. Cursor shape MUST be set via `wp_cursor_shape_manager_v1`.
 
 #### Scenario: click on OK hotspot emits UserOk
 - **WHEN** a pointer button press lands within the OK button's hotspot rectangle
@@ -66,7 +66,7 @@ The `Seat` MUST bind `wl_pointer` and `wl_touch`, track motion/down/up events, a
 
 ### Requirement: xkbcommon C-dlopen linkage
 
-The `xkbcommon` crate (v0.8+) MUST be used via its `xkbcommon-dl` variant that dlopens `libxkbcommon.so` at runtime. This is the single recorded exception to the pure-Rust invariant (D3).
+The `xkbcommon` crate (v0.8+) MUST be used via its `xkbcommon-dl` variant that dlopens `libxkbcommon.so` at runtime. This is the single recorded exception to the pure-Rust invariant.
 
 #### Scenario: libxkbcommon loaded at runtime
 - **WHEN** the `Wayland` frontend initializes the XKB context

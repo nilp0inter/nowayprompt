@@ -1,8 +1,7 @@
 //! Integration tests for the Assuan REPL command matrix.
 //!
 //! These tests exercise the full `AssuanRepl::handle_line` dispatch with a
-//! mock frontend, asserting byte-identical output against the legacy
-//! `wayprompt-pinentry.zig` behavior. Parity with tasks 12.1-12.9.
+//! mock frontend, asserting byte-identical wire output for each command.
 
 use nowayprompt::config::Config;
 use nowayprompt::frontend::{Event, Frontend, FrontendError, InterfaceMode};

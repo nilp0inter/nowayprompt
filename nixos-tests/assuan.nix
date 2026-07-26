@@ -1,4 +1,4 @@
-# Stage 2: Assuan protocol contract under a real TTY fallback.
+# Assuan protocol contract under a real TTY fallback.
 #
 # The pinned oracle initializes its frontend before Assuan setup, so it cannot
 # greet in this headless VM: its TTY name is only supplied by OPTION ttyname.
@@ -12,7 +12,7 @@ let
   driver = ./assuan-driver.py;
 in
 {
-  name = "stage-2-assuan";
+  name = "assuan";
 
   nodes.machine = { pkgs, ... }: {
     virtualisation.memorySize = 1024;

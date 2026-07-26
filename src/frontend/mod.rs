@@ -1,7 +1,6 @@
 //! Frontend abstraction: trait + shared types for poll-based dispatch.
 //!
-//! 100% behavioral parity with `legacy/src/Frontend.zig`. The TTY fallback
-//! (Stage 2) and Wayland frontend (Stage 3) both implement this trait.
+//! The TTY fallback and Wayland frontend both implement this trait.
 
 use std::io;
 use std::os::fd::RawFd;
@@ -9,12 +8,10 @@ use std::os::fd::RawFd;
 use crate::config::Config;
 
 /// Frontend event resulting from user interaction.
-///
-/// Parity with `legacy/src/Frontend.zig` `Event` enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
     /// No event yet (inner sentinel; the dispatch loop treats `None`-as-event
-    /// as a no-op, matching legacy `.none`).
+    /// as a no-op).
     None,
     /// User confirmed (pressed Enter / clicked OK).
     UserOk,
@@ -26,10 +23,9 @@ pub enum Event {
 
 /// Which interface mode the frontend is currently rendering.
 ///
-/// Parity with `legacy/src/Frontend.zig` `InterfaceMode` enum. Note that the
-/// Assuan-level `AssuanMode` distinguishes `Confirm` from `Message`, but both
-/// map to the frontend `Message` mode (legacy `Frontend.enterMode(.message)`
-/// for both `confirm()` and `message()`).
+/// The Assuan-level `AssuanMode` distinguishes `Confirm` from `Message`, but
+/// both map to the frontend `Message` mode (`confirm()` and `message()` both
+/// enter `Message`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterfaceMode {
     /// No prompt displayed (cooked terminal).
@@ -78,8 +74,6 @@ impl From<io::Error> for FrontendError {
 /// The dispatch loop in `main.rs` calls `flush` at the top of each iteration,
 /// polls stdin + the fd returned by `init`, then calls `handle_event` or
 /// `no_event` depending on whether the frontend fd is readable.
-///
-/// Parity with `legacy/src/Frontend.zig` method set.
 pub trait Frontend {
     /// Initialize the frontend, returning the fd to poll alongside stdin.
     /// Stores runtime config state (e.g. `tty_name`) from `cfg`.
@@ -90,7 +84,7 @@ pub trait Frontend {
 
     /// Enter a prompt mode (`GetPin`/`Message`) or leave it (`None`).
     /// Entering a mode asserts the current mode is `None`; leaving asserts
-    /// the current mode is non-`None` (parity with legacy `debug.assert`).
+    /// the current mode is non-`None`.
     fn enter_mode(&mut self, mode: InterfaceMode) -> Result<(), FrontendError>;
 
     /// Block until a frontend event is available, then return it.
@@ -103,7 +97,7 @@ pub trait Frontend {
     fn flush(&mut self) -> Result<Option<Event>, FrontendError>;
 
     /// Called when the frontend fd was NOT readable in the last poll.
-    /// No-op for the blocking TTY frontend (parity with legacy `noEvent`).
+    /// No-op for the blocking TTY frontend.
     fn no_event(&mut self) -> Result<(), FrontendError>;
 }
 

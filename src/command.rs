@@ -122,7 +122,7 @@ fn run_pinentry() -> Result<u8, Box<dyn std::error::Error>> {
         allow_tty_fallback: true,
         ..Config::default()
     };
-    config.parse().ok();
+    config.parse()?;
 
     let stdout = io::stdout();
     let mut repl = AssuanRepl::new(stdout.lock())?;

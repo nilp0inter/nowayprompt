@@ -37,11 +37,15 @@ use super::WaylandState;
 
 // --- Fonts -------------------------------------------------------------------
 
-/// Bundled font faces: DejaVu Sans regular + bold, no system font scan.
+/// Bundled fallback faces: DejaVu Sans regular + bold. `new_with_fonts`
+/// loads them around the system font set (cosmic-text 0.19 scans system
+/// fonts unconditionally), so configured family names resolve against
+/// system fonts with the bundled faces as a guaranteed last resort.
 const FONT_REGULAR: &[u8] = include_bytes!("../../../assets/DejaVuSans.ttf");
 const FONT_BOLD: &[u8] = include_bytes!("../../../assets/DejaVuSans-Bold.ttf");
 
-/// Font sizes in pixels: 14 for regular text, 20 for large labels.
+/// Pixel sizes used when a font description carries no `size=` attribute:
+/// the wayprompt(5) defaults `sans:size=14` / `sans:size=20`.
 const FONT_SIZE_REGULAR: f32 = 14.0;
 const FONT_SIZE_LARGE: f32 = 20.0;
 
@@ -50,6 +54,83 @@ fn new_font_system() -> FontSystem {
         fontdb::Source::Binary(Arc::new(FONT_REGULAR.to_vec())),
         fontdb::Source::Binary(Arc::new(FONT_BOLD.to_vec())),
     ])
+}
+
+/// The font family a description selects: a fontconfig generic alias or a
+/// concrete family name matched against the font database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FamilySpec {
+    SansSerif,
+    Serif,
+    Monospace,
+    Name(String),
+}
+
+impl FamilySpec {
+    fn as_family(&self) -> Family<'_> {
+        match self {
+            Self::SansSerif => Family::SansSerif,
+            Self::Serif => Family::Serif,
+            Self::Monospace => Family::Monospace,
+            Self::Name(name) => Family::Name(name),
+        }
+    }
+}
+
+/// A parsed wayprompt(5) font description (`font-regular` / `font-large`
+/// value): an fcft/fontconfig-style pattern `family[:attr=value...]`.
+/// Only the `size` attribute (pixels) is interpreted; unknown attributes
+/// are ignored. Glyph coverage beyond the selected family is left to
+/// cosmic-text's own fallback over the shared font database.
+#[derive(Debug, Clone, PartialEq)]
+struct FontDescription {
+    family: FamilySpec,
+    size: f32,
+}
+
+impl FontDescription {
+    /// The `[general] font-regular` description (default size 14).
+    fn regular(description: Option<&str>) -> Self {
+        Self::parse(description, FONT_SIZE_REGULAR)
+    }
+
+    /// The `[general] font-large` description (default size 20).
+    fn large(description: Option<&str>) -> Self {
+        Self::parse(description, FONT_SIZE_LARGE)
+    }
+
+    fn parse(description: Option<&str>, default_size: f32) -> Self {
+        let mut family = FamilySpec::SansSerif;
+        let mut size = default_size;
+        if let Some(description) = description {
+            let mut components = description.split(':');
+            // The first component is the family; an empty family or a
+            // generic alias keeps the sans-serif default (fcft
+            // default-family behaviour).
+            match components.next().unwrap_or_default().trim() {
+                "" | "sans" | "sans-serif" | "Sans" | "Sans-Serif" => {}
+                "serif" | "Serif" => family = FamilySpec::Serif,
+                "mono" | "monospace" | "Mono" | "Monospace" => {
+                    family = FamilySpec::Monospace;
+                }
+                name => family = FamilySpec::Name(name.to_string()),
+            }
+            for attr in components {
+                let Some((key, value)) = attr.split_once('=') else {
+                    continue;
+                };
+                if !key.trim().eq_ignore_ascii_case("size") {
+                    continue;
+                }
+                if let Ok(px) = value.trim().parse::<f32>() {
+                    if px.is_finite() && px > 0.0 {
+                        size = px;
+                    }
+                }
+            }
+        }
+        Self { family, size }
+    }
 }
 
 // --- HotSpots ----------------------------------------------------------------
@@ -104,20 +185,25 @@ struct TextView {
 impl TextView {
     /// Shape `text` and measure it.
     ///
-    /// Labels above the regular size use the bundled bold face (title and
-    /// prompt). The line height mirrors fcft's `font.height`
-    /// for the bundled DejaVu metrics: `ceil((ascent + descent) * size /
-    /// em) ≈ size * 1.2` (17px at 14, 24px at 20).
-    fn new(font_system: &mut FontSystem, text: &str, font_size: f32) -> Self {
+    /// Family and pixel size come from the font description: `font-regular`
+    /// shapes description, error message and buttons; `font-large` shapes
+    /// title and prompt, which are additionally bold. Glyphs the selected
+    /// family does not cover fall back through cosmic-text over the shared
+    /// system + bundled font database. The line height mirrors fcft's
+    /// `font.height` for the bundled DejaVu metrics:
+    /// `ceil((ascent + descent) * size / em) ≈ size * 1.2`.
+    fn new(
+        font_system: &mut FontSystem,
+        text: &str,
+        font: &FontDescription,
+        weight: Weight,
+    ) -> Self {
         let mut buffer = Buffer::new(
             font_system,
-            Metrics::new(font_size, (font_size * 1.2).round()),
+            Metrics::new(font.size, (font.size * 1.2).round()),
         );
         buffer.set_size(None, None);
-        let mut attrs = Attrs::new().family(Family::SansSerif);
-        if font_size > FONT_SIZE_REGULAR {
-            attrs = attrs.weight(Weight::BOLD);
-        }
+        let attrs = Attrs::new().family(font.family.as_family()).weight(weight);
         buffer.set_text(text, &attrs, Shaping::Advanced, None);
         buffer.shape_until_scroll(font_system, false);
 
@@ -251,12 +337,14 @@ fn blend_glyph(
     }
 }
 
-/// Shape one trimmed label into a [`TextView`]. `None` → no view; a label
-/// that is empty after trimming errors (matching fcft's `error.EmptyString`).
+/// Shape one trimmed label into a [`TextView`] using the given font
+/// description and weight. `None` → no view; a label that is empty after
+/// trimming errors (matching fcft's `error.EmptyString`).
 fn make_view(
     font_system: &mut FontSystem,
     label: Option<&str>,
-    large: bool,
+    font: &FontDescription,
+    weight: Weight,
 ) -> Result<Option<TextView>, FrontendError> {
     let Some(text) = label else {
         return Ok(None);
@@ -265,12 +353,7 @@ fn make_view(
     if trimmed.is_empty() {
         return Err(FrontendError::Init("empty text label".into()));
     }
-    let size = if large {
-        FONT_SIZE_LARGE
-    } else {
-        FONT_SIZE_REGULAR
-    };
-    Ok(Some(TextView::new(font_system, trimmed, size)))
+    Ok(Some(TextView::new(font_system, trimmed, font, weight)))
 }
 
 // --- Colour + drawing helpers ------------------------------------------------
@@ -416,18 +499,56 @@ impl Surface {
         );
         let fractional_scale = fractional.map(|m| m.get_fractional_scale(&wl_surface, qh, ()));
 
+        let ui = state.config().wayland_ui.clone();
+        let regular_font = FontDescription::regular(ui.font_regular.as_deref());
+        let large_font = FontDescription::large(ui.font_large.as_deref());
         let mut font_system = new_font_system();
         let swash_cache = SwashCache::new();
 
-        // Title/prompt use the large/bold font, everything else regular.
+        // Title/prompt use the large bold font, everything else regular.
         let labels = &state.config().labels;
-        let title = make_view(&mut font_system, labels.title.as_deref(), true)?;
-        let description = make_view(&mut font_system, labels.description.as_deref(), false)?;
-        let errmessage = make_view(&mut font_system, labels.err_message.as_deref(), false)?;
-        let prompt = make_view(&mut font_system, labels.prompt.as_deref(), true)?;
-        let ok = make_view(&mut font_system, labels.ok.as_deref(), false)?;
-        let notok = make_view(&mut font_system, labels.not_ok.as_deref(), false)?;
-        let cancel = make_view(&mut font_system, labels.cancel.as_deref(), false)?;
+        let title = make_view(
+            &mut font_system,
+            labels.title.as_deref(),
+            &large_font,
+            Weight::BOLD,
+        )?;
+        let description = make_view(
+            &mut font_system,
+            labels.description.as_deref(),
+            &regular_font,
+            Weight::NORMAL,
+        )?;
+        let errmessage = make_view(
+            &mut font_system,
+            labels.err_message.as_deref(),
+            &regular_font,
+            Weight::NORMAL,
+        )?;
+        let prompt = make_view(
+            &mut font_system,
+            labels.prompt.as_deref(),
+            &large_font,
+            Weight::BOLD,
+        )?;
+        let ok = make_view(
+            &mut font_system,
+            labels.ok.as_deref(),
+            &regular_font,
+            Weight::NORMAL,
+        )?;
+        let notok = make_view(
+            &mut font_system,
+            labels.not_ok.as_deref(),
+            &regular_font,
+            Weight::NORMAL,
+        )?;
+        let cancel = make_view(
+            &mut font_system,
+            labels.cancel.as_deref(),
+            &regular_font,
+            Weight::NORMAL,
+        )?;
 
         let mut surface = Self {
             configured: false,
@@ -448,7 +569,7 @@ impl Surface {
             notok,
             cancel,
             mode,
-            ui: state.config().wayland_ui.clone(),
+            ui,
             colours: state.config().wayland_colours.clone(),
         };
         surface.calculate_size();
@@ -1017,5 +1138,82 @@ mod tests {
         assert!(!hs.contains_point(9, 20));
         assert!(!hs.contains_point(41, 20));
         assert!(!hs.contains_point(10, 61));
+    }
+
+    // --- Font description parsing (wayprompt(5) font-regular/font-large) ---
+
+    use super::{FamilySpec, FontDescription, TextView, FONT_BOLD, FONT_REGULAR};
+    use cosmic_text::{FontSystem, Weight};
+
+    #[test]
+    fn font_description_defaults_without_config() {
+        let regular = FontDescription::regular(None);
+        assert_eq!(regular.family, FamilySpec::SansSerif);
+        assert_eq!(regular.size, 14.0);
+        let large = FontDescription::large(None);
+        assert_eq!(large.family, FamilySpec::SansSerif);
+        assert_eq!(large.size, 20.0);
+    }
+
+    #[test]
+    fn font_description_parses_family_and_size() {
+        let d = FontDescription::regular(Some("Iosevka:size=22"));
+        assert_eq!(d.family, FamilySpec::Name("Iosevka".to_string()));
+        assert_eq!(d.size, 22.0);
+    }
+
+    #[test]
+    fn font_description_generic_aliases_and_attributes() {
+        assert_eq!(
+            FontDescription::regular(Some("sans:size=9")).family,
+            FamilySpec::SansSerif
+        );
+        assert_eq!(
+            FontDescription::regular(Some("Sans-Serif")).family,
+            FamilySpec::SansSerif
+        );
+        assert_eq!(
+            FontDescription::regular(Some("mono")).family,
+            FamilySpec::Monospace
+        );
+        assert_eq!(
+            FontDescription::regular(Some("monospace:size=11")).family,
+            FamilySpec::Monospace
+        );
+        assert_eq!(
+            FontDescription::regular(Some("serif")).family,
+            FamilySpec::Serif
+        );
+        // Empty family keeps the sans-serif generic; size still applies.
+        let d = FontDescription::regular(Some(":size=28"));
+        assert_eq!(d.family, FamilySpec::SansSerif);
+        assert_eq!(d.size, 28.0);
+        // Unknown or malformed attributes are ignored.
+        let d = FontDescription::large(Some("Iosevka:weight=bold:size=abc:slant=italic"));
+        assert_eq!(d.family, FamilySpec::Name("Iosevka".to_string()));
+        assert_eq!(d.size, 20.0);
+        // Non-positive or non-finite sizes are rejected.
+        assert_eq!(FontDescription::regular(Some("Foo:size=-3")).size, 14.0);
+        assert_eq!(FontDescription::regular(Some("Foo:size=0")).size, 14.0);
+    }
+
+    #[test]
+    fn descriptor_size_reaches_shaping_metrics() {
+        // A bundled-only database keeps this test off the system font set.
+        let mut db = fontdb::Database::new();
+        db.load_font_data(FONT_REGULAR.to_vec());
+        db.load_font_data(FONT_BOLD.to_vec());
+        db.set_sans_serif_family("DejaVu Sans");
+        let mut font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), db);
+
+        let regular = FontDescription::regular(None);
+        let large = FontDescription::regular(Some("DejaVu Sans:size=28"));
+        let a = TextView::new(&mut font_system, "Secret", &regular, Weight::NORMAL);
+        let b = TextView::new(&mut font_system, "Secret", &large, Weight::NORMAL);
+        // 14px → 17px line height, 28px → 34px: the configured size must
+        // scale the shaped layout.
+        assert_eq!(a.height, 17);
+        assert_eq!(b.height, 34);
+        assert!(b.width > a.width);
     }
 }

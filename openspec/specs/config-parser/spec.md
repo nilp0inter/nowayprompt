@@ -6,11 +6,15 @@ Defines parsing and validation of the nowayprompt INI configuration format.
 
 ### Requirement: Streaming INI line parser via BufRead
 
-The config parser MUST read `wayprompt.5` INI files via `std::io::BufRead` line-by-line without loading the entire file into a heap structure. Each line MUST be trimmed of leading/trailing whitespace. Inline comments starting with `#` MUST be stripped. Trailing semicolons (`;`) on assignment values MUST be stripped (`wayprompt.5` dialect compatibility).
+The config parser MUST read `wayprompt.5` INI files via `std::io::BufRead` line-by-line without loading the entire file into a heap structure. Each line MUST be trimmed of leading/trailing whitespace. Inline comments starting with `#` MUST be stripped. Trailing semicolons (`;`) on assignment values MUST be stripped (`wayprompt.5` dialect compatibility). After semicolon stripping, one pair of matching surrounding quotes (single or double) around the value MUST be stripped (upstream `zig-ini` parity); interior content including `=` is preserved verbatim and mismatched quotes are retained. The first `=` on the line splits key from value, so values may themselves contain `=`.
 
 #### Scenario: Basic key-value assignment
-- **WHEN** the parser reads `button_inner_padding = 5;`
-- **THEN** the key is `button_inner_padding`, the value is `5` (semicolon stripped)
+- **WHEN** the parser reads `button-inner-padding = 5;`
+- **THEN** the key is `button-inner-padding`, the value is `5` (semicolon stripped)
+
+#### Scenario: Quoted font description value
+- **WHEN** the parser reads `font-regular = "Iosevka:size=22";`
+- **THEN** the key is `font-regular`, the value is `Iosevka:size=22` (semicolon and matching surrounding quotes stripped, inner `=` preserved)
 
 #### Scenario: Inline comment stripping
 - **WHEN** the parser reads `border = 2  # thickness`
@@ -38,7 +42,7 @@ The parser MUST track the current section (`[general]` or `[colours]`) and dispa
 
 ### Requirement: Hyphen-to-underscore field name normalization
 
-Field names in the config file use hyphens (`pin-square-size`); Rust struct fields use underscores (`pin_square_size`). The parser MUST normalize hyphens to underscores when matching keys to struct fields. A mismatched key MUST produce a parse error indicating the unknown variable and section.
+Field names in the config file use hyphens (`pin-square-size`); Rust struct fields use underscores (`pin_square_size`). The parser MUST normalize hyphens to underscores when matching keys to struct fields. Keys are hyphenated only (upstream `fieldEql` parity): underscore spellings of known fields (e.g. `font_regular`) MUST be rejected. A mismatched key MUST produce a parse error indicating the unknown variable and section; the error aborts the file, so assignments after the offending line are not applied.
 
 #### Scenario: Hyphenated key match
 - **WHEN** the parser reads `pin-square-size = 18` in `[general]`
@@ -47,6 +51,10 @@ Field names in the config file use hyphens (`pin-square-size`); Rust struct fiel
 #### Scenario: Unknown variable
 - **WHEN** the parser reads `nonexistent = 1` in `[general]`
 - **THEN** a parse error is returned indicating the unknown variable name
+
+#### Scenario: Underscore-spelled key rejected
+- **WHEN** the parser reads `font_regular = "Iosevka:size=22";` in `[general]`
+- **THEN** a parse error is returned naming `font_regular` as an unknown variable, and a `pin-square-amount` assignment on a later line is not applied
 
 ### Requirement: Hex color to premultiplied u16 RGBA conversion
 
@@ -104,11 +112,11 @@ The `nowayprompt/config.ini` primary candidate is an intentional, documented div
 
 ### Requirement: Wayland UI dimension fields
 
-The `[general]` section MUST accept integer fields: `vertical_padding`, `horizontal_padding`, `button_inner_padding`, `pin_square_size`, `pin_square_border`, `button_border`, `border`, `corner_radius` (u16), `pin_square_amount`. It MUST accept optional string fields: `font_regular`, `font_large` (font file paths). Invalid integer values MUST produce a parse error.
+The `[general]` section MUST accept integer fields: `vertical-padding`, `horizontal-padding`, `button-inner-padding`, `pin-square-size`, `pin-square-border`, `button-border`, `border`, `corner-radius` (u16), `pin-square-amount`. It MUST accept optional string fields: `font-regular`, `font-large` (wayprompt(5) font descriptions: fcft/fontconfig-style patterns `family[:attr=value…]`, e.g. `sans:size=14`; values may carry matching surrounding quotes). Invalid integer values MUST produce a parse error.
 
 #### Scenario: Integer field assignment
-- **WHEN** the parser reads `vertical_padding = 10` in `[general]`
-- **THEN** `vertical_padding` is set to 10
+- **WHEN** the parser reads `vertical-padding = 10` in `[general]`
+- **THEN** `vertical-padding` is set to 10
 
 #### Scenario: Invalid integer
 - **WHEN** the parser reads `border = wide` in `[general]`
@@ -116,12 +124,12 @@ The `[general]` section MUST accept integer fields: `vertical_padding`, `horizon
 
 ### Requirement: Color field names in [colours]
 
-The `[colours]` section MUST accept the `wayprompt.5` field names: `background`, `border`, `text`, `error_text`, `pin_background`, `pin_border`, `pin_square`, `ok_button`, `ok_button_border`, `ok_button_text`, `not_ok_button`, `not_ok_button_border`, `not_ok_button_text`, `cancel_button`, `cancel_button_border`, `cancel_button_text`. Each accepts a hex color value.
+The `[colours]` section MUST accept the `wayprompt.5` field names: `background`, `border`, `text`, `error-text`, `pin-background`, `pin-border`, `pin-square`, `ok-button`, `ok-button-border`, `ok-button-text`, `not-ok-button`, `not-ok-button-border`, `not-ok-button-text`, `cancel-button`, `cancel-button-border`, `cancel-button-text`. Each accepts a hex color value.
 
 #### Scenario: Known color field
-- **WHEN** the parser reads `error_text = 0xe0002b` in `[colours]`
-- **THEN** `error_text` is set to the premultiplied color
+- **WHEN** the parser reads `error-text = 0xe0002b` in `[colours]`
+- **THEN** `error-text` is set to the premultiplied color
 
 #### Scenario: Unknown color field
-- **WHEN** the parser reads `unknown_colour = 0x000000` in `[colours]`
+- **WHEN** the parser reads `unknown-colour = 0x000000` in `[colours]`
 - **THEN** a parse error is returned indicating the unknown variable

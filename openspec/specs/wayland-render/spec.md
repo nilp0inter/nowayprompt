@@ -30,15 +30,15 @@ The `src/frontend/wayland/render.rs` module MUST render the UI into the SHM buff
 
 ### Requirement: Text layout and draw via cosmic-text
 
-`TextView` MUST use `cosmic-text::Buffer` with `FontSystem` + `SwashCache` to shape and lay out text, then blit glyphs onto the `tiny-skia` pixmap via a custom `Renderer` that blends straight-alpha swash pixels onto the premultiplied pixmap. Font fallback MUST chain `[user_font, "sans:size=14", "mono:size=14"]` via `fontdb` query. Text metrics (width/height) MUST be available for layout-box positioning.
+`TextView` MUST use `cosmic-text::Buffer` with `FontSystem` + `SwashCache` to shape and lay out text, then blit glyphs onto the `tiny-skia` pixmap via a custom `Renderer` that blends straight-alpha swash pixels onto the premultiplied pixmap. The configured font description (parsed from `font-regular` / `font-large` as an fcft-style pattern `family[:attr=value…]`) MUST reach shaping: its family leads the cosmic-text `Attrs` (generic aliases `sans`/`sans-serif`, `serif`, `mono`/`monospace` map to fontdb generics; an empty family implies sans-serif) and its `size=N` attribute overrides the class default pixel size (14 regular, 20 large); unknown attributes are ignored. Title and prompt shape from `font-large` at bold weight; description, error message and buttons shape from `font-regular` at normal weight. Glyph coverage beyond the selected family is cosmic-text's platform fallback over the shared database — no separate fallback chain is maintained. Text metrics (width/height) MUST be available for layout-box positioning.
 
 #### Scenario: TextView reports layout metrics
 - **WHEN** a `TextView` is created for a string S with the regular font
 - **THEN** it exposes `width` and `height` suitable for centering in the surface
 
-#### Scenario: font fallback chain
-- **WHEN** `config.wayland_ui.font_regular` is `Some(user_font)`
-- **THEN** the font query tries `user_font`, then `sans:size=14`, then `mono:size=14`
+#### Scenario: configured font reaches shaping
+- **WHEN** `config.wayland_ui.font_regular` is `Some("Iosevka:size=22")`
+- **THEN** regular labels shape with family `Iosevka` at 22px (cosmic-text falls back to the default sans-serif and bundled faces when the family is unresolved), while title and prompt still shape from the `font-large` description
 
 ### Requirement: Grayscale antialiasing only
 
@@ -48,13 +48,13 @@ The render pipeline MUST disable subpixel antialiasing and force grayscale AA. T
 - **WHEN** text is rasterized
 - **THEN** the swash rasterizer uses grayscale AA, not subpixel/LCD AA
 
-### Requirement: Bundled fallback font, no system font scan
+### Requirement: Bundled fallback faces in a system-backed font database
 
-The render pipeline MUST load a bundled fallback font (DejaVu Sans / Fira Mono) via `fontdb::load_font_data(include_bytes!(...))` and MUST NOT call `fontdb::load_system_fonts()` to avoid startup font scanning.
+The render pipeline MUST load the bundled DejaVu Sans regular + bold faces via `fontdb::load_font_data(include_bytes!(...))` so rendering works with zero installed fonts. System fonts share the same database: cosmic-text 0.19's `FontSystem::new_with_fonts` scans the system font set unconditionally (the earlier "no system font scan" text described an intent the pinned cosmic-text does not implement), so configured user families resolve against system fonts, with the bundled faces as guaranteed last resort.
 
-#### Scenario: no system font scan at startup
-- **WHEN** `Wayland::init` initializes the font system
-- **THEN** only the bundled font is loaded; `load_system_fonts` is never called
+#### Scenario: bundled faces always present
+- **WHEN** the font system is initialized
+- **THEN** the database contains the bundled DejaVu Sans regular and bold faces alongside any system fonts
 
 ### Requirement: Cached pin mask glyph
 

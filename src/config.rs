@@ -1,9 +1,10 @@
 //! `wayprompt.5` INI configuration parser.
 //!
 //! Streaming `std::io::BufRead` line parser with section dispatch
-//! (`[general]`, `[colours]`), trailing-semicolon stripping, inline `#`
-//! comment stripping, hyphen-to-underscore field normalization, and hex
-//! `0xRRGGBB` / `0xRRGGBBAA` to premultiplied-alpha `Colour` conversion.
+//! (`[general]`, `[colours]`), trailing-semicolon stripping, matching
+//! surrounding-quote stripping, inline `#` comment stripping,
+//! hyphen-to-underscore field normalization, and hex `0xRRGGBB` /
+//! `0xRRGGBBAA` to premultiplied-alpha `Colour` conversion.
 //!
 //! The file format is the `wayprompt.5` INI dialect. Config file resolution
 //! is nowayprompt-primary with a silent wayprompt fallback: within the
@@ -237,7 +238,7 @@ impl WaylandUi {
         int_field!(corner_radius);
         int_field!(pin_square_amount);
 
-        // String fields (font paths/descriptions).
+        // Font description string fields.
         if field_eq("font_regular", variable) {
             self.font_regular = Some(value.to_string());
             return Ok(true);
@@ -510,6 +511,13 @@ impl Config {
         // Strip trailing semicolon (INI values may terminate with `;`).
         if value.ends_with(';') {
             value = value[..value.len() - 1].trim_end();
+        }
+        // Strip one pair of matching surrounding quotes (`zig-ini` parity):
+        // `"sans:size=14"` → `sans:size=14`. Interior content (including
+        // `=`) is preserved verbatim; mismatched quotes are retained.
+        let vb = value.as_bytes();
+        if vb.len() >= 2 && (vb[0] == b'"' || vb[0] == b'\'') && vb[vb.len() - 1] == vb[0] {
+            value = &value[1..value.len() - 1];
         }
 
         match section {
@@ -984,5 +992,68 @@ corner-radius = 8
         assert_eq!(Config::select_config_in(&base), primary);
         let mut cfg = Config::default();
         assert!(cfg.parse_at(&Config::select_config_in(&base)).is_err());
+    }
+
+    #[test]
+    fn issue_8_quoted_font_regular_keeps_later_fields() {
+        // Issue #8 fixture with canonical hyphen keys and a quoted value:
+        // the font description parses with inner `=` preserved and the
+        // surrounding quotes stripped, and the assignment after it is
+        // still honored.
+        let input = "\
+[general]
+font-regular = \"Iosevka:size=22\";
+pin-square-amount = 32;
+";
+        let mut cfg = Config::default();
+        cfg.parse_from(Cursor::new(input), "test.ini").unwrap();
+        assert_eq!(
+            cfg.wayland_ui.font_regular.as_deref(),
+            Some("Iosevka:size=22")
+        );
+        assert_eq!(cfg.wayland_ui.font_large.as_deref(), None);
+        assert_eq!(cfg.wayland_ui.pin_square_amount, 32);
+    }
+
+    #[test]
+    fn issue_8_underscore_font_regular_is_fatal_unknown_variable() {
+        // `font_regular` is not a key: wayprompt(5) names are hyphenated.
+        // The diagnostic must name the offending variable so pinentry
+        // reports it instead of silently keeping defaults, and the parse
+        // aborts before later assignments apply.
+        let input = "\
+[general]
+font_regular = \"Iosevka:size=22\";
+pin-square-amount = 32;
+";
+        let mut cfg = Config::default();
+        let err = cfg.parse_from(Cursor::new(input), "test.ini").unwrap_err();
+        match err {
+            ConfigError::BadConfig { line, message, .. } => {
+                assert_eq!(line, 2);
+                assert!(message.contains("unknown variable"), "message: {message}");
+                assert!(message.contains("font_regular"), "message: {message}");
+            }
+            other => panic!("expected BadConfig, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_strips_matching_surrounding_quotes() {
+        let input = "\
+[general]
+font-regular = 'mono:size=12';
+border = \"2\";
+font-large = DejaVu\";
+";
+        let mut cfg = Config::default();
+        cfg.parse_from(Cursor::new(input), "test.ini").unwrap();
+        // Single and double quotes strip when both ends match; the first
+        // `=` splits key from value, inner `=` survives (see issue #8
+        // fixture above).
+        assert_eq!(cfg.wayland_ui.font_regular.as_deref(), Some("mono:size=12"));
+        assert_eq!(cfg.wayland_ui.border, 2);
+        // A trailing quote without an opening one is content.
+        assert_eq!(cfg.wayland_ui.font_large.as_deref(), Some("DejaVu\""));
     }
 }

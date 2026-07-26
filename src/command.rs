@@ -240,8 +240,8 @@ fn handle_assuan_event(
     if event == Event::None {
         return Ok(());
     }
-    repl.handle_frontend_event(cfg, secbuf, event)?;
     frontend.enter_mode(InterfaceMode::None)?;
+    repl.handle_frontend_event(cfg, secbuf, event)?;
     Ok(())
 }
 

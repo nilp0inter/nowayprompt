@@ -43,7 +43,10 @@ pub enum InterfaceMode {
 /// Error returned by frontend operations.
 #[derive(Debug)]
 pub enum FrontendError {
-    /// `init` failed (e.g. no `tty_name` set, or open failed).
+    /// No Wayland display was configured or the display socket was unreachable.
+    /// This is the only Wayland failure that may select the TTY fallback.
+    Unavailable(String),
+    /// `init` failed after a frontend was selected.
     Init(String),
     /// I/O error from a frontend read/write.
     Io(io::Error),
@@ -54,6 +57,7 @@ pub enum FrontendError {
 impl std::fmt::Display for FrontendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Unavailable(msg) => write!(f, "frontend unavailable: {msg}"),
             Self::Init(msg) => write!(f, "frontend init error: {msg}"),
             Self::Io(e) => write!(f, "frontend I/O error: {e}"),
             Self::InvalidMode(msg) => write!(f, "frontend invalid mode: {msg}"),
@@ -106,10 +110,112 @@ pub trait Frontend {
 pub mod tty;
 pub mod wayland;
 
+use crate::secret::SecretBuffer;
+
+/// Concrete production frontend selected for one prompt session.
+///
+/// Wayland state is heap-allocated once to keep the enum compact.
+pub enum FrontendOwner {
+    Wayland(Box<Wayland>),
+    Tty(Tty),
+}
+
+impl FrontendOwner {
+    /// Select Wayland first, falling back only for an unavailable display.
+    pub fn select(
+        cfg: &mut Config,
+        secbuf: &mut SecretBuffer,
+    ) -> Result<(Self, RawFd), FrontendError> {
+        let mut wayland = Wayland::new();
+        wayland.set_secret_buffer(secbuf);
+
+        match wayland.init(cfg) {
+            Ok(fd) => Ok((Self::Wayland(Box::new(wayland)), fd)),
+            Err(error) if should_fallback(cfg.allow_tty_fallback, &error) => {
+                let mut tty = Tty::new();
+                tty.set_secret_buffer(secbuf);
+                let fd = tty.init(cfg).map_err(|error| match error {
+                    FrontendError::Unavailable(message) => FrontendError::Init(message),
+                    other => other,
+                })?;
+                Ok((Self::Tty(tty), fd))
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+fn should_fallback(allow_tty_fallback: bool, error: &FrontendError) -> bool {
+    allow_tty_fallback && matches!(error, FrontendError::Unavailable(_))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{should_fallback, FrontendError};
+
+    #[test]
+    fn only_unavailable_wayland_may_fall_back() {
+        assert!(should_fallback(
+            true,
+            &FrontendError::Unavailable("no display".into())
+        ));
+        assert!(!should_fallback(
+            false,
+            &FrontendError::Unavailable("no display".into())
+        ));
+        assert!(!should_fallback(
+            true,
+            &FrontendError::Init("missing global".into())
+        ));
+    }
+}
+
+impl Frontend for FrontendOwner {
+    fn init(&mut self, cfg: &mut Config) -> Result<RawFd, FrontendError> {
+        match self {
+            Self::Wayland(frontend) => frontend.init(cfg),
+            Self::Tty(frontend) => frontend.init(cfg),
+        }
+    }
+
+    fn deinit(&mut self) {
+        match self {
+            Self::Wayland(frontend) => frontend.deinit(),
+            Self::Tty(frontend) => frontend.deinit(),
+        }
+    }
+
+    fn enter_mode(&mut self, mode: InterfaceMode) -> Result<(), FrontendError> {
+        match self {
+            Self::Wayland(frontend) => frontend.enter_mode(mode),
+            Self::Tty(frontend) => frontend.enter_mode(mode),
+        }
+    }
+
+    fn handle_event(&mut self) -> Result<Event, FrontendError> {
+        match self {
+            Self::Wayland(frontend) => frontend.handle_event(),
+            Self::Tty(frontend) => frontend.handle_event(),
+        }
+    }
+
+    fn flush(&mut self) -> Result<Option<Event>, FrontendError> {
+        match self {
+            Self::Wayland(frontend) => frontend.flush(),
+            Self::Tty(frontend) => frontend.flush(),
+        }
+    }
+
+    fn no_event(&mut self) -> Result<(), FrontendError> {
+        match self {
+            Self::Wayland(frontend) => frontend.no_event(),
+            Self::Tty(frontend) => frontend.no_event(),
+        }
+    }
+}
+
 /// Re-export the TTY frontend for convenient use.
 pub use tty::Tty;
 
-/// Re-export the Wayland frontend (Stage 3). Stage 4 wires frontend
-/// selection in `main.rs`; for now it is exercised only by the
-/// `nowayprompt-wayland-test` binary and the nixosTest.
+/// Re-export the Wayland frontend.
 pub use wayland::Wayland;

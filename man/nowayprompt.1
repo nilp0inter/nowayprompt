@@ -1,0 +1,44 @@
+.TH NOWAYPROMPT 1 2026-07-26 nowayprompt "General Commands Manual"
+.SH NAME
+nowayprompt \- Wayland-native prompt command-line interface
+.SH SYNOPSIS
+.B nowayprompt
+.RI [ options ]
+.SH DESCRIPTION
+.B nowayprompt
+shows a configured message or password prompt. It selects Wayland first and
+uses the configured TTY fallback only when Wayland is unavailable.
+.SH OPTIONS
+.TP
+.B --title, --description, --error
+Set visible message text.
+.TP
+.B --prompt
+Set password prompt text; requires
+.BR --get-pin .
+.TP
+.B --button-ok, --button-not-ok, --button-cancel
+Set button labels.
+.TP
+.B --wayland-display
+Select the Wayland display socket.
+.TP
+.B --get-pin
+Request a password and include it in the result on success.
+.TP
+.B --json
+Write the result as JSON.
+.TP
+.B --help, -h
+Show usage and exit.
+.SH EXIT STATUS
+0 is OK, 10 is cancellation, 20 is not-OK, and 1 is an error.
+.SH FILES
+Configuration is read from
+.BR $XDG_CONFIG_HOME/wayprompt/config.ini
+or
+.BR $HOME/.config/wayprompt/config.ini .
+.SH SEE ALSO
+.BR pinentry-nowayprompt (1),
+.BR nowayprompt-ssh-askpass (1),
+.BR nowayprompt.conf (5)

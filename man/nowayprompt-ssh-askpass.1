@@ -1,0 +1,23 @@
+.TH NOWAYPROMPT-SSH-ASKPASS 1 2026-07-26 nowayprompt "General Commands Manual"
+.SH NAME
+nowayprompt-ssh-askpass \- SSH askpass provider
+.SH SYNOPSIS
+.B nowayprompt-ssh-askpass
+.RI [ prompt ]
+.SH DESCRIPTION
+.B nowayprompt-ssh-askpass
+requests a password through the shared prompt path. Its arguments form the
+prompt title; without arguments the title is "SSH Password:". On successful,
+non-empty password entry it writes only the password followed by a newline.
+Cancellation, a rejected prompt, an empty password, and errors write no secret
+and exit nonzero.
+.SH ENVIRONMENT
+Set
+.B SSH_ASKPASS
+ to this executable's installed path. SSH normally invokes an askpass provider
+only when it has no controlling terminal; set
+.B SSH_ASKPASS_REQUIRE=force
+when required by the caller.
+.SH SEE ALSO
+.BR nowayprompt (1),
+.BR ssh (1)

@@ -145,6 +145,7 @@ impl BufferPool {
         width: u32,
         height: u32,
     ) -> Result<usize, std::io::Error> {
+        self.cull_buffers();
         let i = match self.select_slot(width, height) {
             SlotDecision::Reuse(i) => i,
             SlotDecision::Reinit(i) | SlotDecision::FillFree(i) => {
@@ -158,7 +159,6 @@ impl BufferPool {
                 i
             }
         };
-        self.cull_buffers();
         Ok(i)
     }
 

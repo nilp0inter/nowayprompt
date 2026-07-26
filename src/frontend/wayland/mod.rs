@@ -34,6 +34,8 @@ pub mod render;
 pub mod shm;
 
 use std::os::fd::{AsFd, AsRawFd, RawFd};
+use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 
 use wayland_client::protocol::wl_callback::WlCallback;
 use wayland_client::protocol::wl_compositor::WlCompositor;
@@ -185,23 +187,12 @@ impl WaylandState {
         Ok(())
     }
 
-    /// Convert a set `exit_reason` into an `Event`, clear it, and enter
-    /// `None` mode (parity `Wayland.zig:1673-1689`).
-    fn take_exit(&mut self, qh: &QueueHandle<Self>) -> Option<Result<Event, FrontendError>> {
+    fn take_exit(&mut self) -> Option<Result<Event, FrontendError>> {
         let er = self.exit_reason.take()?;
         Some(match er {
-            ExitReason::UserOk => {
-                let r = self.enter_mode(qh, InterfaceMode::None);
-                r.map(|()| Event::UserOk)
-            }
-            ExitReason::UserAbort => {
-                let r = self.enter_mode(qh, InterfaceMode::None);
-                r.map(|()| Event::UserAbort)
-            }
-            ExitReason::UserNotOk => {
-                let r = self.enter_mode(qh, InterfaceMode::None);
-                r.map(|()| Event::UserNotOk)
-            }
+            ExitReason::UserOk => Ok(Event::UserOk),
+            ExitReason::UserAbort => Ok(Event::UserAbort),
+            ExitReason::UserNotOk => Ok(Event::UserNotOk),
             ExitReason::Error(e) => Err(e),
         })
     }
@@ -290,18 +281,18 @@ impl Default for Wayland {
 
 impl Frontend for Wayland {
     fn init(&mut self, cfg: &mut Config) -> Result<RawFd, FrontendError> {
+        let display = display_socket(cfg)?;
+        let stream = UnixStream::connect(&display).map_err(|error| {
+            FrontendError::Unavailable(format!("cannot connect to {}: {error}", display.display()))
+        })?;
+        let conn = Connection::from_socket(stream).map_err(|error| {
+            FrontendError::Unavailable(format!(
+                "cannot establish Wayland connection to {}: {error}",
+                display.display()
+            ))
+        })?;
         self.state.config_ptr = Some(cfg as *mut Config);
 
-        // Resolve the display socket: explicit config > WAYLAND_DISPLAY env.
-        // Parity `Wayland.zig:1463-1467`.
-        let _display_name = cfg
-            .wayland_display
-            .clone()
-            .or_else(|| std::env::var("WAYLAND_DISPLAY").ok())
-            .ok_or_else(|| FrontendError::Init("no wayland display".into()))?;
-
-        let conn = Connection::connect_to_env()
-            .map_err(|e| FrontendError::Init(format!("wayland connect: {e}")))?;
         let display = conn.display();
         let queue = conn.new_event_queue::<WaylandState>();
         let qh = queue.handle();
@@ -360,8 +351,7 @@ impl Frontend for Wayland {
         }
         queue.dispatch_pending(&mut self.state).map_err(io_other)?;
 
-        let qh = self.qh.clone().expect("init not called");
-        match self.state.take_exit(&qh) {
+        match self.state.take_exit() {
             Some(result) => result,
             None => Ok(Event::None),
         }
@@ -370,17 +360,12 @@ impl Frontend for Wayland {
     fn flush(&mut self) -> Result<Option<Event>, FrontendError> {
         // Flush outbound traffic only (see module docs for the read-model
         // deviation). Then surface any pending exit reason.
-        let queue = self.queue.as_ref().expect("init not called");
-        // Drain any already-buffered inbound without blocking so that
-        // `prepare_read` in handle_event starts clean.
         let conn = self.conn.as_ref().expect("init not called");
-        let _ = queue;
         match conn.flush() {
             Ok(()) => {}
             Err(e) => return Err(FrontendError::Io(std::io::Error::other(e))),
         }
-        let qh = self.qh.clone().expect("init not called");
-        match self.state.take_exit(&qh) {
+        match self.state.take_exit() {
             Some(result) => Ok(Some(result?)),
             None => Ok(None),
         }
@@ -392,8 +377,67 @@ impl Frontend for Wayland {
     }
 }
 
+fn display_socket(cfg: &Config) -> Result<PathBuf, FrontendError> {
+    resolve_display_socket(
+        cfg.wayland_display.as_deref(),
+        std::env::var_os("WAYLAND_DISPLAY"),
+        std::env::var_os("XDG_RUNTIME_DIR"),
+    )
+}
+
+fn resolve_display_socket(
+    configured: Option<&str>,
+    environment: Option<std::ffi::OsString>,
+    runtime_dir: Option<std::ffi::OsString>,
+) -> Result<PathBuf, FrontendError> {
+    let display = configured
+        .map(PathBuf::from)
+        .or_else(|| environment.map(PathBuf::from))
+        .ok_or_else(|| FrontendError::Unavailable("no Wayland display".into()))?;
+
+    if display.is_absolute() {
+        return Ok(display);
+    }
+
+    let runtime_dir = runtime_dir
+        .ok_or_else(|| FrontendError::Unavailable("XDG_RUNTIME_DIR is not set".into()))?;
+    let runtime_dir = PathBuf::from(runtime_dir);
+    if !runtime_dir.is_absolute() {
+        return Err(FrontendError::Unavailable(
+            "XDG_RUNTIME_DIR is not an absolute path".into(),
+        ));
+    }
+    Ok(runtime_dir.join(display))
+}
+
 fn io_other(e: impl std::fmt::Display) -> FrontendError {
     FrontendError::Io(std::io::Error::other(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_display_socket;
+
+    #[test]
+    fn configured_display_takes_precedence() {
+        assert_eq!(
+            resolve_display_socket(
+                Some("/configured/socket"),
+                Some("environment".into()),
+                Some("/runtime".into()),
+            )
+            .unwrap(),
+            std::path::PathBuf::from("/configured/socket")
+        );
+    }
+
+    #[test]
+    fn no_display_is_unavailable() {
+        assert!(matches!(
+            resolve_display_socket(None, None, Some("/runtime".into())),
+            Err(crate::frontend::FrontendError::Unavailable(_))
+        ));
+    }
 }
 
 // --- Dispatch impls --------------------------------------------------------

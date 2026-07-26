@@ -150,6 +150,31 @@ impl<W: Write> AssuanRepl<W> {
         self.mode == AssuanMode::None
     }
 
+    /// Whether handling `line` requires creating a frontend first.
+    ///
+    /// Assuan setup commands intentionally remain frontend-free so `OPTION`
+    /// values can select the connection used by the first prompt.
+    pub fn requires_frontend(&self, cfg: &Config, line: &str) -> bool {
+        if self.mode != AssuanMode::None {
+            return false;
+        }
+
+        match line
+            .split_whitespace()
+            .next()
+            .map(str::to_ascii_uppercase)
+            .as_deref()
+        {
+            Some("GETPIN") | Some("CONFIRM") => true,
+            Some("MESSAGE") => {
+                cfg.labels.title.is_some()
+                    || cfg.labels.description.is_some()
+                    || cfg.labels.err_message.is_some()
+            }
+            _ => false,
+        }
+    }
+
     /// Handle a single Assuan input line.
     ///
     /// Parity with legacy `parseInput` (wayprompt-pinentry.zig

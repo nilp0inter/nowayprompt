@@ -1,3 +1,7 @@
+## Purpose
+
+Defines the terminal fallback frontend, raw-mode lifecycle, and ANSI rendering.
+
 ## Requirements
 
 ### Requirement: Raw termios mode with RAII restoration

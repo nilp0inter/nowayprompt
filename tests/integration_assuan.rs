@@ -350,3 +350,30 @@ fn option_ttyname_stores_in_config() {
     .unwrap();
     assert_eq!(cfg.tty_name, Some("/dev/tty1".into()));
 }
+
+#[test]
+fn options_select_frontend_before_first_prompt() {
+    let (mut repl, mut frontend) = make_repl();
+    let mut cfg = Config::default();
+    let mut secbuf = SecretBuffer::new().unwrap();
+
+    repl.handle_line(
+        &mut cfg,
+        &mut secbuf,
+        &mut frontend,
+        "OPTION putenv=WAYLAND_DISPLAY=wayland-test",
+    )
+    .unwrap();
+    repl.handle_line(
+        &mut cfg,
+        &mut secbuf,
+        &mut frontend,
+        "OPTION ttyname=/dev/tty7",
+    )
+    .unwrap();
+
+    assert_eq!(cfg.wayland_display.as_deref(), Some("wayland-test"));
+    assert_eq!(cfg.tty_name.as_deref(), Some("/dev/tty7"));
+    assert!(repl.requires_frontend(&cfg, "GETPIN"));
+    assert!(!repl.requires_frontend(&cfg, "MESSAGE"));
+}

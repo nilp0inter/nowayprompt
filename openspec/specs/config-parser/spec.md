@@ -1,3 +1,7 @@
+## Purpose
+
+Defines parsing and validation of the nowayprompt INI configuration format.
+
 ## Requirements
 
 ### Requirement: Streaming INI line parser via BufRead

@@ -95,7 +95,8 @@ class Session:
 
     def _consume(self, f):
         try:
-            b = os.read(f.fileno(), 65536)
+            fd = f if isinstance(f, int) else f.fileno()
+            b = os.read(fd, 65536)
         except OSError:
             b = b""
         if f is self.proc.stdout:

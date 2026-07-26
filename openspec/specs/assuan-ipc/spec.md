@@ -1,3 +1,7 @@
+## Purpose
+
+Defines the synchronous Assuan pinentry protocol and command state machine.
+
 ## Requirements
 
 ### Requirement: Assuan wire framing and greeting

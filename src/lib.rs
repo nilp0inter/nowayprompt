@@ -5,6 +5,7 @@
 
 #![allow(dead_code)]
 
+pub mod command;
 pub mod config;
 pub mod frontend;
 pub mod protocol;

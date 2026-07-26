@@ -6,15 +6,23 @@ Defines the Stage 3 Wayland frontend: a `Wayland` struct implementing the frozen
 
 ### Requirement: Wayland frontend implements Frontend
 
-The `src/frontend/wayland/mod.rs` module MUST define a `Wayland` struct that implements the `Frontend` trait. `init` MUST connect to the Wayland display (via `WAYLAND_DISPLAY` env or `config.wayland_display`), bind registry globals (`wl_compositor`, `wl_shm`, `wl_seat`, `zwlr_layer_shell_v1`, `wp_cursor_shape_manager_v1`, `wp_fractional_scale_manager_v1`), perform a sync round-trip, initialize the XKB context, and return the `EventQueue` fd for `poll(2)`. `deinit` MUST tear down all globals in legacy order. `enter_mode` MUST defer to `delayed_mode` if the sync callback has not fired (parity with `Wayland.zig:1542-1546`). `flush`/`handle_event`/`no_event` MUST implement the Wayland dispatch triad (D4).
+The `src/frontend/wayland/mod.rs` module MUST define a `Wayland` struct that implements the `Frontend` trait. `init` MUST connect to the Wayland display named by `config.wayland_display` when set, otherwise by `WAYLAND_DISPLAY`. The selected name MUST be the input to the actual client connection, not merely a validation check. `init` MUST bind registry globals (`wl_compositor`, `wl_shm`, `wl_seat`, `zwlr_layer_shell_v1`, `wp_cursor_shape_manager_v1`, `wp_fractional_scale_manager_v1`), perform a sync round-trip, initialize the XKB context, and return the `EventQueue` fd for `poll(2)`. `deinit` MUST tear down all globals in legacy order (surfaces, buffers, layer shell, cursor manager, fractional-scale manager, seats, registry, queue, connection). `enter_mode` MUST defer to `delayed_mode` if the sync callback has not fired (parity with `Wayland.zig:1542-1546`). `flush`/`handle_event`/`no_event` MUST implement the Wayland dispatch triad (D4).
+
+#### Scenario: explicit configured display connects
+- **WHEN** `Config.wayland_display` names an available Wayland socket distinct from `WAYLAND_DISPLAY`
+- **THEN** `Wayland::init` connects to the configured socket
+
+#### Scenario: environment display connects
+- **WHEN** `Config.wayland_display` is unset and `WAYLAND_DISPLAY` names an available socket
+- **THEN** `Wayland::init` connects to that environment-selected socket
 
 #### Scenario: init connects and returns a pollable fd
 - **WHEN** `Wayland::init` is called with a valid `WAYLAND_DISPLAY`
 - **THEN** it binds the registry globals, performs a sync round-trip, and returns the `EventQueue` fd as a `RawFd`
 
-#### Scenario: init fails without a display
-- **WHEN** `Wayland::init` is called with no `WAYLAND_DISPLAY` and no `config.wayland_display`
-- **THEN** it returns `FrontendError::Init` with a message indicating no Wayland display
+#### Scenario: no display is configured
+- **WHEN** neither `Config.wayland_display` nor `WAYLAND_DISPLAY` is set
+- **THEN** `Wayland::init` returns an initialization error before creating a client connection
 
 #### Scenario: enter_mode delayed until sync
 - **WHEN** `enter_mode(GetPin)` is called before the sync callback fires

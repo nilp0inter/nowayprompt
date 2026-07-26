@@ -1,3 +1,7 @@
+## Purpose
+
+Defines the reproducible Nix development environment and Rust workspace baseline.
+
 ## Requirements
 
 ### Requirement: Nix flake development shell

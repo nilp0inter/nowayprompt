@@ -1,0 +1,17 @@
+.TH PINENTRY-NOWAYPROMPT 1 2026-07-26 nowayprompt "General Commands Manual"
+.SH NAME
+pinentry-nowayprompt \- Assuan pinentry service
+.SH SYNOPSIS
+.B pinentry-nowayprompt
+.SH DESCRIPTION
+.B pinentry-nowayprompt
+serves the GPG Assuan pinentry protocol. It emits its greeting immediately but
+does not initialize a frontend until a GETPIN, CONFIRM, or non-empty MESSAGE
+request. OPTION ttyname and OPTION putenv=WAYLAND_DISPLAY issued before the
+first prompt configure frontend selection.
+.SH FILES
+Configuration is shared with
+.BR nowayprompt (1).
+.SH SEE ALSO
+.BR nowayprompt (1),
+.BR nowayprompt.conf (5)

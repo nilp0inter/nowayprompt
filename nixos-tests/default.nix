@@ -36,4 +36,7 @@ in
 
   # Stage 3: hardened TTY console fallback parity.
   stage-3-tty = mkTest ./stage-3-tty.nix;
+
+  # Stage 4: reachable layer-shell Wayland parity under headless Sway.
+  stage-4-wayland = mkTest ./stage-4-wayland.nix;
 }

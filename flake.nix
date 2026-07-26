@@ -90,6 +90,7 @@
                 ./Cargo.toml
                 ./Cargo.lock
                 ./src
+                ./man
                 # Bundled fonts referenced via `include_bytes!` in the
                 # Wayland render pipeline (design D7).
                 ./assets
@@ -98,11 +99,63 @@
             cargoLock.lockFile = ./Cargo.lock;
             nativeBuildInputs = [ pkgs.pkg-config ];
             buildInputs = [ pkgs.libxkbcommon ];
-            # Minimal Stage 2 package: just the nowayprompt binary. The
-            # full packaging (pinentry-/askpass symlinks, manpages) is a
-            # Stage 4 deliverable; the nixosTests must not depend on it.
-            meta.mainProgram = "nowayprompt";
+            cargoBuildFlags = [ "--bin" "nowayprompt" ];
+            cargoInstallFlags = [ "--bin" "nowayprompt" ];
+            postInstall = ''
+              ln -s nowayprompt "$out/bin/pinentry-nowayprompt"
+              ln -s nowayprompt "$out/bin/nowayprompt-ssh-askpass"
+              install -Dm644 man/nowayprompt.1 \
+                "$out/share/man/man1/nowayprompt.1"
+              install -Dm644 man/pinentry-nowayprompt.1 \
+                "$out/share/man/man1/pinentry-nowayprompt.1"
+              install -Dm644 man/nowayprompt-ssh-askpass.1 \
+                "$out/share/man/man1/nowayprompt-ssh-askpass.1"
+              install -Dm644 man/nowayprompt.conf.5 \
+                "$out/share/man/man5/nowayprompt.conf.5"
+            '';
+            meta = {
+              mainProgram = "nowayprompt";
+              maintainers = [ pkgs.lib.maintainers.nilp0inter ];
+            };
           };
+
+          # Test infrastructure only; it is consumed by the Wayland parity
+          # derivation and is not installed by the public package.
+          packages.nowayprompt-wayland-test =
+            pkgs.rustPlatform.buildRustPackage {
+              pname = "nowayprompt-wayland-test";
+              version = "0.1.0";
+              src = pkgs.lib.fileset.toSource {
+                root = ./.;
+                fileset = pkgs.lib.fileset.unions [
+                  ./Cargo.toml
+                  ./Cargo.lock
+                  ./src
+                  ./assets
+                ];
+              };
+              cargoLock.lockFile = ./Cargo.lock;
+              nativeBuildInputs = [ pkgs.pkg-config ];
+              buildInputs = [ pkgs.libxkbcommon ];
+              cargoBuildFlags = [ "--bin" "nowayprompt-wayland-test" ];
+              cargoInstallFlags = [ "--bin" "nowayprompt-wayland-test" ];
+            };
+
+          checks.nowayprompt-package-interface = pkgs.runCommand
+            "nowayprompt-package-interface"
+            { target = self.packages.${system}.nowayprompt; }
+            ''
+              test -x "$target/bin/nowayprompt"
+              test -L "$target/bin/pinentry-nowayprompt"
+              test -L "$target/bin/nowayprompt-ssh-askpass"
+              test "$(readlink "$target/bin/pinentry-nowayprompt")" = nowayprompt
+              test "$(readlink "$target/bin/nowayprompt-ssh-askpass")" = nowayprompt
+              test -f "$target/share/man/man1/nowayprompt.1.gz"
+              test -f "$target/share/man/man1/pinentry-nowayprompt.1.gz"
+              test -f "$target/share/man/man1/nowayprompt-ssh-askpass.1.gz"
+              test -f "$target/share/man/man5/nowayprompt.conf.5.gz"
+              touch "$out"
+            '';
 
           devShells.default = pkgs.mkShell {
             packages = rustToolchain ++ nativeDeps;

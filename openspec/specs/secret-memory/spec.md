@@ -1,3 +1,7 @@
+## Purpose
+
+Defines protected allocation, lifetime, and input handling for secret bytes.
+
 ## Requirements
 
 ### Requirement: OS-level page-locked secret memory allocation

@@ -1,0 +1,16 @@
+.TH NOWAYPROMPT.CONF 5 2026-07-26 nowayprompt "File Formats Manual"
+.SH NAME
+nowayprompt.conf \- nowayprompt configuration format
+.SH SYNOPSIS
+.B $XDG_CONFIG_HOME/wayprompt/config.ini
+.br
+.B $HOME/.config/wayprompt/config.ini
+.SH DESCRIPTION
+The configuration file is an INI document with [general] and [colours]
+sections. General settings configure Wayland geometry and fonts. Colours use
+0xRRGGBB or 0xRRGGBBAA values. Runtime labels, TTY names, and Wayland display
+selection are supplied by the invoking command or Assuan protocol and are not
+configuration-file keys.
+.SH SEE ALSO
+.BR nowayprompt (1),
+.BR pinentry-nowayprompt (1)

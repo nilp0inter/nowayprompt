@@ -117,7 +117,7 @@
               description = "Wayland prompt tool (pinentry and ssh-askpass replacement)";
               homepage = "https://github.com/nilp0inter/nowayprompt";
               license = pkgs.lib.licenses.gpl3Only;
-              mainProgram = "nowayprompt";
+              mainProgram = "pinentry-nowayprompt";
               maintainers = [ pkgs.lib.maintainers.nilp0inter ];
             };
           };

@@ -7,7 +7,7 @@
   </picture>
   <br>
   <a href="https://github.com/nilp0inter/nowayprompt/actions/workflows/ci.yml"><img src="https://github.com/nilp0inter/nowayprompt/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/nilp0inter/nowayprompt/actions/workflows/renovate.yml"><img src="https://github.com/nilp0inter/nowayprompt/actions/workflows/renovate.yml/badge.svg" alt="Renovate"></a>
+  <a href="https://app.renovatebot.com/dashboard"><img src="https://img.shields.io/badge/maintaied%20with-renovate-blue?logo=renovatebot" alt="renovate"></a>
   <a href="https://nixos.org/"><img src="https://img.shields.io/badge/Built_with-Nix-5277C3?logo=nixos&logoColor=white" alt="Built with Nix"></a>
   <img src="https://img.shields.io/badge/Zig_content-0%25-brightgreen?logo=zig" alt="Zig content: 0%">
 </p>

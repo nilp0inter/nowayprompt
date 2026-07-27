@@ -20,6 +20,34 @@ gone missing—such as in a TTY console.
 It needs a compositor with the layer-shell protocol
 (`zwlr_layer_shell_v1`). No layer shell, no tiny prompt.
 
+> [!NOTE]
+> This project is a Rust port and fork of the excellent
+> [Wayprompt](https://sr.ht/~leon_plickat/wayprompt/), by Leon Henrik Plickat.
+>
+> The _Wayprompt_ project has been seemingly dormant for almost two years[^1] at
+> this point, and while still relevant, being based on Zig 0.13[^2] puts it at
+> risk of being dropped from Nixpkgs[^3] in the next release (or two), as the
+> older Zig versions are retired.
+>
+> This is a humble contribution to the community, to carry the project forward.
+> By porting it to Rust, we hope to provide a foundation that will be easier to
+> maintain over the long term, while remaining a drop-in[^4] replacement for
+> _Wayprompt_.
+>
+> We thank _Herr Plickat_ for unleashing _Wayprompt_ onto the world.  At first
+> glance you might perceive it as a seemingly small and unassuming tool, yet if
+> you embrace it, as we did, it soon becomes an *indispensable* tool in your
+> daily workflow.
+
+[^1]: At the time of writing, July 27, 2026. [Last
+    commit](https://git.sr.ht/~leon_plickat/wayprompt/commit/66fe87408d3cfba8c8cc6ff65c1868e5db6ad3bb)
+    on August 25, 2024.
+[^2]: Zig 0.16 [was released](https://ziglang.org/news/0.16.0-released/) on
+    April 14, 2026.
+[^3]: Zig 0.12 [was dropped](https://github.com/NixOS/nixpkgs/pull/434644) from
+    Nixpkgs (unstable branch) in August, 2025.
+[^4]: Yes, Home Manager and Stylix handle it, no sweat.
+
 ---
 
 ## Executables

@@ -15,7 +15,7 @@ use cosmic_text::{
 };
 use tiny_skia::{
     Color as SkColor, FillRule, Paint, Path, PathBuilder, PixmapMut, PremultipliedColorU8, Rect,
-    Shader, Stroke, Transform,
+    Shader, Transform,
 };
 use wayland_client::protocol::wl_compositor::WlCompositor;
 use wayland_client::protocol::wl_shm::WlShm;
@@ -906,8 +906,10 @@ impl Surface {
     }
 
     /// Background: bordered rectangle, with rounded corners when
-    /// configured. Rounded corners use a rounded-rect path fill + stroke
-    /// rather than a circle-mask composite.
+    /// configured. The border is drawn as two concentric rounded-rect
+    /// fills — the outer rect in the border colour, then the inner
+    /// rect (inset by the border width) in the background colour — so
+    /// the ring keeps a constant thickness and concentric radii.
     fn draw_background(
         &self,
         pixmap: &mut PixmapMut<'_>,
@@ -923,30 +925,40 @@ impl Surface {
                 .min(self.width / 2)
                 .min(self.height / 2) as f32
                 * s;
-            let Some(path) = rounded_rect_path(0.0, 0.0, w, h, r) else {
-                return;
-            };
-            // Anti-aliased (grayscale AA); `Paint::default()` has
-            // `anti_alias = true`.
+            let b = f32::from(ui.border) * s;
             let mut paint = Paint {
-                shader: Shader::SolidColor(to_sk_color(colours.background)),
+                shader: Shader::SolidColor(to_sk_color(colours.border)),
                 ..Default::default()
             };
-            pixmap.fill_path(
-                &path,
-                &paint,
-                FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
-            paint.shader = Shader::SolidColor(to_sk_color(colours.border));
-            // The stroke is centred on the path; double the width so
-            // `border` pixels land inside (the outer half clips off).
-            let stroke = Stroke {
-                width: f32::from(ui.border) * s * 2.0,
-                ..Default::default()
-            };
-            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+            // Fill the border colour across the whole rounded rect,
+            // then inset the background by the border width so the ring
+            // has constant thickness and concentric radii (outer r,
+            // inner r - b). Stroking the edge path instead would leave
+            // the inner radius at r - 2b and double the straight-edge
+            // thickness.
+            if let Some(path) = rounded_rect_path(0.0, 0.0, w, h, r) {
+                pixmap.fill_path(
+                    &path,
+                    &paint,
+                    FillRule::Winding,
+                    Transform::identity(),
+                    None,
+                );
+            }
+            paint.shader = Shader::SolidColor(to_sk_color(colours.background));
+            let iw = w - 2.0 * b;
+            let ih = h - 2.0 * b;
+            if iw > 0.0 && ih > 0.0 {
+                if let Some(path) = rounded_rect_path(b, b, iw, ih, (r - b).max(0.0)) {
+                    pixmap.fill_path(
+                        &path,
+                        &paint,
+                        FillRule::Winding,
+                        Transform::identity(),
+                        None,
+                    );
+                }
+            }
         } else {
             bordered_rectangle(
                 pixmap,

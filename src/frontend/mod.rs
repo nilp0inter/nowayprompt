@@ -143,27 +143,6 @@ fn should_fallback(allow_tty_fallback: bool, error: &FrontendError) -> bool {
     allow_tty_fallback && matches!(error, FrontendError::Unavailable(_))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{should_fallback, FrontendError};
-
-    #[test]
-    fn only_unavailable_wayland_may_fall_back() {
-        assert!(should_fallback(
-            true,
-            &FrontendError::Unavailable("no display".into())
-        ));
-        assert!(!should_fallback(
-            false,
-            &FrontendError::Unavailable("no display".into())
-        ));
-        assert!(!should_fallback(
-            true,
-            &FrontendError::Init("missing global".into())
-        ));
-    }
-}
-
 impl Frontend for FrontendOwner {
     fn init(&mut self, cfg: &mut Config) -> Result<RawFd, FrontendError> {
         match self {
@@ -213,3 +192,24 @@ pub use tty::Tty;
 
 /// Re-export the Wayland frontend.
 pub use wayland::Wayland;
+
+#[cfg(test)]
+mod tests {
+    use super::{should_fallback, FrontendError};
+
+    #[test]
+    fn only_unavailable_wayland_may_fall_back() {
+        assert!(should_fallback(
+            true,
+            &FrontendError::Unavailable("no display".into())
+        ));
+        assert!(!should_fallback(
+            false,
+            &FrontendError::Unavailable("no display".into())
+        ));
+        assert!(!should_fallback(
+            true,
+            &FrontendError::Init("missing global".into())
+        ));
+    }
+}

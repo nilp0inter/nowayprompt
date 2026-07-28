@@ -9,6 +9,10 @@
 
 use std::sync::Arc;
 
+use super::scale::{self, Scale};
+use super::WaylandState;
+use crate::config::{Colour, WaylandColours, WaylandUi};
+use crate::frontend::{FrontendError, InterfaceMode};
 use cosmic_text::{
     Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, SwashImage,
     Weight,
@@ -18,22 +22,20 @@ use tiny_skia::{
     Shader, Transform,
 };
 use wayland_client::protocol::wl_compositor::WlCompositor;
+use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_shm::WlShm;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Dispatch, QueueHandle};
 use wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1;
 use wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_v1::WpFractionalScaleV1;
+use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
+use wayland_protocols::wp::viewporter::client::wp_viewporter::WpViewporter;
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::{
     Layer, ZwlrLayerShellV1,
 };
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::{
     Anchor, KeyboardInteractivity, ZwlrLayerSurfaceV1,
 };
-
-use crate::config::{Colour, WaylandColours, WaylandUi};
-use crate::frontend::{FrontendError, InterfaceMode};
-
-use super::WaylandState;
 
 // --- Fonts -------------------------------------------------------------------
 
@@ -220,7 +222,11 @@ impl TextView {
         }
     }
 
-    /// Rasterize the label at `(x, y)` onto `pixmap`.
+    /// Rasterize the label at logical `(x, y)` onto a physical pixmap at
+    /// `scale`. Glyphs are shaped with logical metrics and rasterized at
+    /// the effective physical scale so the compositor never enlarges a 1×
+    /// glyph image.
+    #[allow(clippy::too_many_arguments)]
     fn draw(
         &self,
         pixmap: &mut PixmapMut<'_>,
@@ -229,13 +235,16 @@ impl TextView {
         colour: PremultipliedColorU8,
         x: u32,
         y: u32,
+        scale: f32,
     ) {
         let pixmap_w = pixmap.width();
         let pixmap_h = pixmap.height();
         let data = pixmap.data_mut();
+        let ox = x as f32 * scale;
         for run in self.buffer.layout_runs() {
+            let oy = y as f32 * scale + run.line_y * scale;
             for glyph in run.glyphs {
-                let physical = glyph.physical((x as f32, y as f32 + run.line_y), 1.0);
+                let physical = glyph.physical((ox, oy), scale);
                 let Some(image) = swash_cache.get_image_uncached(font_system, physical.cache_key)
                 else {
                     continue;
@@ -387,7 +396,7 @@ fn to_premul8(c: Colour) -> PremultipliedColorU8 {
 
 /// Bordered rectangle: fill the interior, then the four border strips,
 /// un-antialiased like pixman `fillRectangles`. Coordinates are scaled by
-/// `scale`.
+/// `scale` (the effective physical scale factor).
 #[allow(clippy::too_many_arguments)]
 fn bordered_rectangle(
     pixmap: &mut PixmapMut<'_>,
@@ -396,11 +405,11 @@ fn bordered_rectangle(
     width: u32,
     height: u32,
     border: u32,
-    scale: u32,
+    scale: f32,
     background: Colour,
     border_colour: Colour,
 ) {
-    let s = scale as f32;
+    let s = scale;
     let (x, y) = (x as f32 * s, y as f32 * s);
     let (w, h) = (width as f32 * s, height as f32 * s);
     let b = border as f32 * s;
@@ -450,13 +459,28 @@ pub struct Surface {
     pub configured: bool,
     pub width: u32,
     pub height: u32,
-    pub scale: u32,
+    /// Effective scale, recomputed on output enter/leave, output scale,
+    /// and `preferred_scale` events.
+    pub scale: Scale,
     pub hotspots: Vec<HotSpot>,
 
     // Render-owned protocol objects.
     wl_surface: Option<WlSurface>,
     layer_surface: Option<ZwlrLayerSurfaceV1>,
     fractional_scale: Option<WpFractionalScaleV1>,
+    /// `wp_viewport`, present only when both `wp_fractional_scale_manager_v1`
+    /// and `wp_viewporter` are bound. Drives fractional commits; cleared of
+    /// any destination during integer commits.
+    viewport: Option<WpViewport>,
+
+    // Output membership: registry names of `wl_output` globals the surface
+    // has entered (highest positive integer scale among these is the integer
+    // fallback).
+    entered_outputs: Vec<u32>,
+    /// Latest `wp_fractional_scale_v1.preferred_scale` numerator, when
+    /// fractional scaling is enabled. `Some` takes precedence over the
+    /// integer result.
+    fractional_preferred: Option<u32>,
 
     // Text shaping/rasterization state (cosmic-text + swash).
     font_system: FontSystem,
@@ -479,6 +503,7 @@ pub struct Surface {
 
 impl Surface {
     /// Create the layer-shell surface and shape its text views.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         state: &mut WaylandState,
         qh: &QueueHandle<WaylandState>,
@@ -486,6 +511,7 @@ impl Surface {
         layer_shell: &ZwlrLayerShellV1,
         _shm: &WlShm,
         fractional: Option<&WpFractionalScaleManagerV1>,
+        viewporter: Option<&WpViewporter>,
         mode: InterfaceMode,
     ) -> Result<Self, FrontendError> {
         let wl_surface = compositor.create_surface(qh, ());
@@ -497,7 +523,18 @@ impl Surface {
             qh,
             (),
         );
-        let fractional_scale = fractional.map(|m| m.get_fractional_scale(&wl_surface, qh, ()));
+        // Fractional scaling requires both the fractional-scale manager and
+        // the viewporter: without a viewport, a scaled buffer submitted at
+        // buffer scale 1 would alter the surface's logical size. Create the
+        // pair only when both managers are available; otherwise integer
+        // output scaling is the complete fallback.
+        let (fractional_scale, viewport) = match (fractional, viewporter) {
+            (Some(m), Some(v)) => (
+                Some(m.get_fractional_scale(&wl_surface, qh, ())),
+                Some(v.get_viewport(&wl_surface, qh, ())),
+            ),
+            _ => (None, None),
+        };
 
         let ui = state.config().wayland_ui.clone();
         let regular_font = FontDescription::regular(ui.font_regular.as_deref());
@@ -554,11 +591,14 @@ impl Surface {
             configured: false,
             width: 0,
             height: 0,
-            scale: 1,
+            scale: Scale::ONE,
             hotspots: Vec::new(),
             wl_surface: Some(wl_surface),
             layer_surface: Some(layer_surface),
             fractional_scale,
+            viewport,
+            entered_outputs: Vec::new(),
+            fractional_preferred: None,
             font_system,
             swash_cache,
             title,
@@ -596,6 +636,9 @@ impl Surface {
         if let Some(fs) = self.fractional_scale {
             fs.destroy();
         }
+        if let Some(vp) = self.viewport {
+            vp.destroy();
+        }
         if let Some(ls) = self.layer_surface {
             ls.destroy();
         }
@@ -607,6 +650,83 @@ impl Surface {
     /// Find the hotspot containing `(x, y)`.
     pub fn hotspot_from_point(&self, x: u32, y: u32) -> Option<&HotSpot> {
         self.hotspots.iter().find(|hs| hs.contains_point(x, y))
+    }
+
+    /// Whether fractional scaling is enabled (both the fractional-scale
+    /// object and a viewport exist).
+    fn fractional_enabled(&self) -> bool {
+        self.fractional_scale.is_some() && self.viewport.is_some()
+    }
+
+    /// Compute the effective scale from the surface's entered outputs and
+    /// the latest fractional preferred scale. A fractional preferred scale
+    /// takes precedence when fractional scaling is enabled; otherwise the
+    /// highest positive integer scale among entered outputs is used,
+    /// defaulting to 1×.
+    fn effective_scale(&self, state: &WaylandState) -> Scale {
+        scale::compute_effective_scale(
+            self.fractional_enabled(),
+            self.fractional_preferred,
+            self.entered_outputs
+                .iter()
+                .filter_map(|name| state.output_by_name(*name))
+                .map(|o| o.scale),
+        )
+    }
+
+    /// Recompute the effective scale; return `Some(new)` if it changed,
+    /// `None` otherwise. The caller schedules a render only on a real
+    /// (mode + value) change so transient events do not redraw.
+    pub(crate) fn recompute_scale(&mut self, state: &WaylandState) -> Option<Scale> {
+        let new = self.effective_scale(state);
+        if new == self.scale {
+            None
+        } else {
+            self.scale = new;
+            Some(new)
+        }
+    }
+
+    /// Record that the surface entered `output`. Returns the new effective
+    /// scale when it changed. Idempotent: a repeated enter for an already
+    /// tracked output is a no-op.
+    pub fn handle_enter(&mut self, state: &WaylandState, output: &WlOutput) -> Option<Scale> {
+        let name = state.output_name_of(output)?;
+        if self.entered_outputs.contains(&name) {
+            return None;
+        }
+        self.entered_outputs.push(name);
+        self.recompute_scale(state)
+    }
+
+    /// Record that the surface left `output`. Returns the new effective
+    /// scale when it changed.
+    pub fn handle_leave(&mut self, state: &WaylandState, output: &WlOutput) -> Option<Scale> {
+        let name = state.output_name_of(output)?;
+        self.entered_outputs.retain(|n| *n != name);
+        self.recompute_scale(state)
+    }
+
+    /// Record a `preferred_scale(P)` event. Only meaningful when fractional
+    /// scaling is enabled; ignored otherwise. Returns the new effective
+    /// scale when it changed.
+    pub fn handle_preferred_scale(&mut self, state: &WaylandState, scale: u32) -> Option<Scale> {
+        if !self.fractional_enabled() {
+            return None;
+        }
+        if self.fractional_preferred == Some(scale) {
+            return None;
+        }
+        self.fractional_preferred = Some(scale);
+        self.recompute_scale(state)
+    }
+
+    /// Drop membership in an output that was removed globally, and
+    /// recompute the effective scale. Returns the new effective scale when
+    /// it changed.
+    pub fn handle_output_removed(&mut self, state: &WaylandState, name: u32) -> Option<Scale> {
+        self.entered_outputs.retain(|n| *n != name);
+        self.recompute_scale(state)
     }
 
     /// Compute the surface dimensions from the shaped labels and the UI
@@ -677,12 +797,16 @@ impl Surface {
 
         let width = self.width;
         let height = self.height;
+        let scale = self.scale;
+        let (phys_w, phys_h) = scale.physical_size(width, height)?;
+        let scale_f = scale.as_f32();
 
         let shm = state
             .shm
             .clone()
             .ok_or_else(|| FrontendError::Init("no shm".into()))?;
-        let slot = state.buffer_pool.next_buffer(&shm, qh, width, height)?;
+        // The buffer pool keys idle buffers by physical width/height.
+        let slot = state.buffer_pool.next_buffer(&shm, qh, phys_w, phys_h)?;
         // The pin square count tracks the secret buffer length; read it
         // before borrowing the buffer pool below.
         let pin_len = if self.mode == InterfaceMode::GetPin {
@@ -699,7 +823,7 @@ impl Surface {
             .mmap
             .as_mut()
             .ok_or_else(|| FrontendError::Init("buffer is not mapped".into()))?;
-        let mut pixmap = PixmapMut::from_bytes(&mut mmap[..], width, height)
+        let mut pixmap = PixmapMut::from_bytes(&mut mmap[..], phys_w, phys_h)
             .ok_or_else(|| FrontendError::Init("invalid buffer dimensions".into()))?;
         pixmap.fill(SkColor::TRANSPARENT);
 
@@ -708,7 +832,7 @@ impl Surface {
         let bip = u32::from(self.ui.button_inner_padding);
         let btn_border = u32::from(self.ui.button_border);
 
-        self.draw_background(&mut pixmap, &self.ui, &self.colours);
+        self.draw_background(&mut pixmap, &self.ui, &self.colours, scale_f);
 
         let mut y = vp;
         if let Some(title) = &self.title {
@@ -720,6 +844,7 @@ impl Surface {
                 to_premul8(self.colours.text),
                 x,
                 y,
+                scale_f,
             );
             y += title.height + vp;
         }
@@ -732,6 +857,7 @@ impl Surface {
                 to_premul8(self.colours.text),
                 x,
                 y,
+                scale_f,
             );
             y += description.height + vp;
         }
@@ -746,10 +872,11 @@ impl Surface {
                     to_premul8(self.colours.text),
                     x,
                     y,
+                    scale_f,
                 );
                 y += prompt.height + vp;
             }
-            y += self.draw_pin_area(&mut pixmap, pin_len, y, &self.ui, &self.colours);
+            y += self.draw_pin_area(&mut pixmap, pin_len, y, &self.ui, &self.colours, scale_f);
         }
 
         if let Some(errmessage) = &self.errmessage {
@@ -761,12 +888,12 @@ impl Surface {
                 to_premul8(self.colours.error_text),
                 x,
                 y,
+                scale_f,
             );
             y += errmessage.height + vp;
         }
 
-        // Buttons. The hotspot list is
-        // populated on the first render.
+        // Buttons. The hotspot list is populated on the first render.
         let populate_hotspots = self.hotspots.is_empty();
 
         let mut combined_button_length = 0u32;
@@ -800,7 +927,7 @@ impl Surface {
                 bw,
                 bh,
                 btn_border,
-                self.scale,
+                scale_f,
                 self.colours.cancel_button,
                 self.colours.cancel_button_border,
             );
@@ -812,6 +939,7 @@ impl Surface {
                     to_premul8(self.colours.cancel_button_text),
                     x + bip,
                     y + bip,
+                    scale_f,
                 );
             }
             x += bw + hp;
@@ -837,7 +965,7 @@ impl Surface {
                 bw,
                 bh,
                 btn_border,
-                self.scale,
+                scale_f,
                 self.colours.not_ok_button,
                 self.colours.not_ok_button_border,
             );
@@ -849,6 +977,7 @@ impl Surface {
                     to_premul8(self.colours.not_ok_button_text),
                     x + bip,
                     y + bip,
+                    scale_f,
                 );
             }
             x += bw + hp;
@@ -874,7 +1003,7 @@ impl Surface {
                 bw,
                 bh,
                 btn_border,
-                self.scale,
+                scale_f,
                 self.colours.ok_button,
                 self.colours.ok_button_border,
             );
@@ -886,6 +1015,7 @@ impl Surface {
                     to_premul8(self.colours.ok_button_text),
                     x + bip,
                     y + bip,
+                    scale_f,
                 );
             }
         }
@@ -897,7 +1027,27 @@ impl Surface {
             .wl_surface
             .as_ref()
             .ok_or_else(|| FrontendError::Init("no wl_surface".into()))?;
-        wl_surface.set_buffer_scale(self.scale as i32);
+        // Commit protocol: integer buffer scale vs. fractional viewport.
+        match scale {
+            Scale::Integer(n) => {
+                wl_surface.set_buffer_scale(n as i32);
+                // If a viewport exists but fractional mode is inactive,
+                // clear any previously set destination so the buffer maps
+                // to its native logical size.
+                if let Some(vp) = self.viewport.as_ref() {
+                    vp.set_destination(-1, -1);
+                }
+            }
+            Scale::Fractional(_) => {
+                wl_surface.set_buffer_scale(1);
+                if let Some(vp) = self.viewport.as_ref() {
+                    // Map the whole physical buffer to the logical surface
+                    // size; set before each fractional commit to stay
+                    // self-consistent after a scale transition.
+                    vp.set_destination(width as i32, height as i32);
+                }
+            }
+        }
         wl_surface.attach(buffer.wl_buffer.as_ref(), 0, 0);
         wl_surface.damage_buffer(0, 0, i32::MAX, i32::MAX);
         wl_surface.commit();
@@ -915,8 +1065,9 @@ impl Surface {
         pixmap: &mut PixmapMut<'_>,
         ui: &WaylandUi,
         colours: &WaylandColours,
+        scale: f32,
     ) {
-        let s = self.scale as f32;
+        let s = scale;
         let w = self.width as f32 * s;
         let h = self.height as f32 * s;
 
@@ -967,14 +1118,13 @@ impl Surface {
                 self.width,
                 self.height,
                 u32::from(ui.border),
-                self.scale,
+                scale,
                 colours.background,
                 colours.border,
             );
         }
     }
 
-    /// Draw the pin area and return the vertical space consumed.
     fn draw_pin_area(
         &self,
         pixmap: &mut PixmapMut<'_>,
@@ -982,6 +1132,7 @@ impl Surface {
         pinarea_y: u32,
         ui: &WaylandUi,
         colours: &WaylandColours,
+        scale: f32,
     ) -> u32 {
         let sqs = u32::from(ui.pin_square_size);
         let square_padding = sqs / 2;
@@ -997,7 +1148,7 @@ impl Surface {
             pinarea_width,
             pinarea_height,
             u32::from(ui.border),
-            self.scale,
+            scale,
             colours.pin_background,
             colours.pin_border,
         );
@@ -1013,7 +1164,7 @@ impl Surface {
                 sqs,
                 sqs,
                 u32::from(ui.pin_square_border),
-                self.scale,
+                scale,
                 colours.pin_square,
                 colours.pin_border,
             );
@@ -1050,14 +1201,35 @@ pub fn swap_rb(data: &mut [u8]) {
 
 impl Dispatch<WlSurface, ()> for WaylandState {
     fn event(
-        _state: &mut Self,
+        state: &mut Self,
         _proxy: &WlSurface,
-        _event: <WlSurface as wayland_client::Proxy>::Event,
+        event: <WlSurface as wayland_client::Proxy>::Event,
         _: &(),
         _: &Connection,
-        _: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
     ) {
-        // WlSurface emits `enter`/`leave`; no output tracking needed.
+        use wayland_client::protocol::wl_surface::Event;
+        match event {
+            Event::Enter { output } => {
+                if let Some(mut surface) = state.surface.take() {
+                    let changed = surface.handle_enter(state, &output);
+                    state.surface = Some(surface);
+                    if changed.is_some() {
+                        render_surface(state, qh);
+                    }
+                }
+            }
+            Event::Leave { output } => {
+                if let Some(mut surface) = state.surface.take() {
+                    let changed = surface.handle_leave(state, &output);
+                    state.surface = Some(surface);
+                    if changed.is_some() {
+                        render_surface(state, qh);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -1097,19 +1269,23 @@ impl Dispatch<ZwlrLayerSurfaceV1, ()> for WaylandState {
 
 impl Dispatch<WpFractionalScaleV1, ()> for WaylandState {
     fn event(
-        _state: &mut Self,
+        state: &mut Self,
         _proxy: &WpFractionalScaleV1,
-        _event: <WpFractionalScaleV1 as wayland_client::Proxy>::Event,
+        event: <WpFractionalScaleV1 as wayland_client::Proxy>::Event,
         _: &(),
         _: &Connection,
-        _: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
     ) {
-        // The scale is pinned to 1: the SHM buffer is allocated and
-        // rendered at logical size with `set_buffer_scale(1)`, so honoring
-        // `preferred_scale` here would shrink the surface (the compositor
-        // treats a logical-size buffer as high-DPI). Ignore the event;
-        // crisp HiDPI rendering would require a physical-size buffer +
-        // scaled drawing.
+        use wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_v1::Event;
+        if let Event::PreferredScale { scale } = event {
+            if let Some(mut surface) = state.surface.take() {
+                let changed = surface.handle_preferred_scale(state, scale);
+                state.surface = Some(surface);
+                if changed.is_some() {
+                    render_surface(state, qh);
+                }
+            }
+        }
     }
 }
 

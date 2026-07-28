@@ -5,24 +5,34 @@
 //! `pkgs.wayprompt` oracle. Parses label CLI args,
 //! enters GetPin mode, polls stdin + the Wayland fd for events, and reports
 //! the *real* configured surface geometry + hotspots (read back from the
-//! frontend once the first configure event renders the surface).
+//! frontend after each render that changes them).
 //!
 //! Stderr log format (consumed by `wayland-driver.py`):
 //! ```text
 //! configured: <W>x<H> scale=<S>
+//! rendered: <W>x<H> mode=<integer|fractional> scale=<S> phys=<PW>x<PH>
 //! hotspots: [(Ok, x, y, w, h), (Cancel, x, y, w, h)]
 //! ready
 //! event: UserOk
 //! event: UserAbort
 //! ```
-
-use std::io::{BufRead, BufReader};
-use std::os::fd::{AsRawFd, FromRawFd};
+//!
+//! `configured:` is emitted once after the first layer-surface configure.
+//! `rendered:` is emitted after every render that changes the surface
+//! state (logical dims, scale mode/value, physical dims). Both lines carry
+//! `scale=<S>` so the driver's existing regex continues to parse the first
+//! report; the driver may additionally consume `rendered:` for the scaled
+//! scenarios.
 
 use nowayprompt::config::{Config, Labels};
 use nowayprompt::frontend::wayland::render::HotSpot;
+use nowayprompt::frontend::wayland::scale::ScaleMode;
+use nowayprompt::frontend::wayland::SurfaceInfo;
 use nowayprompt::frontend::{Event, Frontend, InterfaceMode, Wayland};
 use nowayprompt::secret::{set_rlimit_core_zero, SecretBuffer};
+
+use std::io::{BufRead, BufReader};
+use std::os::fd::{AsRawFd, FromRawFd};
 
 fn main() {
     set_rlimit_core_zero().ok();
@@ -99,8 +109,11 @@ fn main() {
     ];
 
     let mut in_buffer = String::new();
-    // Report the real geometry once, after the first configure renders.
-    let mut reported = false;
+    // Report after the first configure (the `configured:` + `hotspots:`
+    // + `ready` triplet), then after every render that changes the
+    // surface state (`rendered:` + `hotspots:`).
+    let mut first_reported = false;
+    let mut last_info: Option<SurfaceInfo> = None;
 
     'outer: loop {
         // Non-blocking flush at loop top (parity with main.rs pattern).
@@ -144,13 +157,25 @@ fn main() {
             frontend.no_event().expect("no_event");
         }
 
-        // Report real geometry once the surface has configured + rendered.
-        if !reported {
-            if let Some((w, h, scale, hotspots)) = frontend.surface_info() {
-                eprintln!("configured: {w}x{h} scale={scale}");
-                eprintln!("hotspots: [{}]", format_hotspots(&hotspots));
+        // Report the surface state after each render that changes it.
+        if let Some(info) = frontend.surface_info() {
+            if !first_reported {
+                // First report: the original `configured:` line (kept
+                // parseable by the driver) + hotspots + ready.
+                eprintln!(
+                    "configured: {}x{} scale={}",
+                    info.logical_width, info.logical_height, info.scale_numerator
+                );
+                eprintln!("rendered: {}", format_rendered(&info));
+                eprintln!("hotspots: [{}]", format_hotspots(&info.hotspots));
                 eprintln!("ready");
-                reported = true;
+                first_reported = true;
+                last_info = Some(info);
+            } else if Some(&info) != last_info.as_ref() {
+                // Subsequent changed render: extended diagnostics.
+                eprintln!("rendered: {}", format_rendered(&info));
+                eprintln!("hotspots: [{}]", format_hotspots(&info.hotspots));
+                last_info = Some(info);
             }
         }
 
@@ -199,6 +224,24 @@ fn format_hotspots(hotspots: &[HotSpot]) -> String {
         })
         .collect();
     parts.join(", ")
+}
+
+/// Format the full render state for the `rendered:` diagnostic line.
+/// Format: `<W>x<H> mode=<integer|fractional> scale=<S> phys=<PW>x<PH>`
+fn format_rendered(info: &SurfaceInfo) -> String {
+    let mode = match info.scale_mode {
+        ScaleMode::Integer => "integer",
+        ScaleMode::Fractional => "fractional",
+    };
+    format!(
+        "{}x{} mode={} scale={} phys={}x{}",
+        info.logical_width,
+        info.logical_height,
+        mode,
+        info.scale_numerator,
+        info.physical_width,
+        info.physical_height
+    )
 }
 
 /// Log an event to stderr; return `true` if it terminates the session.

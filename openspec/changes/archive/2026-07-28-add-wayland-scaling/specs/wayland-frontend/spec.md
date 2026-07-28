@@ -1,8 +1,4 @@
-## Purpose
-
-Defines the Wayland frontend: a `Wayland` struct implementing the frozen `Frontend` trait, covering display connection, registry global binding, layer-shell surface lifecycle, and the `exit_reason` dispatch state machine.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Wayland frontend implements Frontend
 
@@ -119,15 +115,3 @@ at the new scale without changing logical surface geometry.
 #### Scenario: scaling event precedes configure
 - **WHEN** an output or preferred-scale event arrives before the first layer-surface configure
 - **THEN** the scale is retained and applied to the first render after configure
-
-### Requirement: exit_reason state machine
-
-The `Wayland` struct MUST track an `exit_reason: Option<ExitReason>` set by `abort()` on user input (UserOk/UserAbort/UserNotOk) or error. `flush`/`handle_event` MUST convert a set `exit_reason` into the corresponding `Event` via `take_exit`, clear it, and call `enter_mode(None)`.
-
-#### Scenario: UserOk converts to Event
-- **WHEN** `exit_reason` is `UserOk` and `flush` or `handle_event` is called
-- **THEN** the method returns `Ok(Event::UserOk)`, clears `exit_reason`, and enters `None` mode
-
-#### Scenario: error propagates
-- **WHEN** `exit_reason` is a non-user error and `flush` or `handle_event` is called
-- **THEN** the method returns `Err(FrontendError)` with the error

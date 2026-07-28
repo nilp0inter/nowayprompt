@@ -427,6 +427,92 @@ fn bordered_rectangle(
     }
 }
 
+/// Draw a rounded-corner background with a border ring using correct
+/// alpha compositing. The background fills the full outer rounded rect
+/// first (SourceOver), so a translucent background composites over the
+/// compositor content. The border is then drawn as a compound path of
+/// the outer and inner rounded rects, filled with `FillRule::EvenOdd`,
+/// so only the ring receives the border colour and a translucent border
+/// composites over the background. The ring keeps constant thickness
+/// `b` with concentric radii (outer `r`, inner `(r - b).max(0)`).
+fn draw_rounded_background(
+    pixmap: &mut PixmapMut<'_>,
+    w: f32,
+    h: f32,
+    r: f32,
+    b: f32,
+    background: Colour,
+    border: Colour,
+) {
+    // Fill the background across the full outer rounded rect so a
+    // translucent background blends with the compositor content
+    // underneath (SourceOver), not with the border colour.
+    let bg_paint = Paint {
+        shader: Shader::SolidColor(to_sk_color(background)),
+        ..Default::default()
+    };
+    if let Some(path) = rounded_rect_path(0.0, 0.0, w, h, r) {
+        pixmap.fill_path(
+            &path,
+            &bg_paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
+    }
+
+    // Build a compound path: outer rounded rect + inner rounded rect
+    // (inset by the border width). Filled with EvenOdd, only the ring
+    // between the two paths receives the border colour, so the
+    // translucent border composites over the background rather than
+    // replacing it. The ring keeps constant thickness b with concentric
+    // radii (outer r, inner (r - b).max(0)).
+    let iw = w - 2.0 * b;
+    let ih = h - 2.0 * b;
+    let outer = rounded_rect_path(0.0, 0.0, w, h, r);
+    let inner = if iw > 0.0 && ih > 0.0 {
+        rounded_rect_path(b, b, iw, ih, (r - b).max(0.0))
+    } else {
+        None
+    };
+    match (outer.as_ref(), inner.as_ref()) {
+        (Some(outer), Some(inner)) => {
+            let mut pb = PathBuilder::new();
+            pb.push_path(outer);
+            pb.push_path(inner);
+            if let Some(compound) = pb.finish() {
+                let border_paint = Paint {
+                    shader: Shader::SolidColor(to_sk_color(border)),
+                    ..Default::default()
+                };
+                pixmap.fill_path(
+                    &compound,
+                    &border_paint,
+                    FillRule::EvenOdd,
+                    Transform::identity(),
+                    None,
+                );
+            }
+        }
+        (Some(outer), None) => {
+            // Degenerate: inner rect is zero/negative — fill the
+            // whole outer rect with the border colour.
+            let border_paint = Paint {
+                shader: Shader::SolidColor(to_sk_color(border)),
+                ..Default::default()
+            };
+            pixmap.fill_path(
+                outer,
+                &border_paint,
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+        _ => {}
+    }
+}
+
 /// Rounded-rectangle path (arcs approximated with quadratics).
 fn rounded_rect_path(x: f32, y: f32, w: f32, h: f32, r: f32) -> Option<Path> {
     let mut pb = PathBuilder::new();
@@ -906,10 +992,12 @@ impl Surface {
     }
 
     /// Background: bordered rectangle, with rounded corners when
-    /// configured. The border is drawn as two concentric rounded-rect
-    /// fills — the outer rect in the border colour, then the inner
-    /// rect (inset by the border width) in the background colour — so
-    /// the ring keeps a constant thickness and concentric radii.
+    /// configured. The border is drawn as a compound path of the outer
+    /// and inner rounded rects, filled with `FillRule::EvenOdd` so only
+    /// the ring receives the border colour. The background is filled
+    /// first so a translucent background composites over the compositor
+    /// (SourceOver), and the translucent border ring composites over the
+    /// background — preserving the alpha semantics of both colours.
     fn draw_background(
         &self,
         pixmap: &mut PixmapMut<'_>,
@@ -926,39 +1014,7 @@ impl Surface {
                 .min(self.height / 2) as f32
                 * s;
             let b = f32::from(ui.border) * s;
-            let mut paint = Paint {
-                shader: Shader::SolidColor(to_sk_color(colours.border)),
-                ..Default::default()
-            };
-            // Fill the border colour across the whole rounded rect,
-            // then inset the background by the border width so the ring
-            // has constant thickness and concentric radii (outer r,
-            // inner r - b). Stroking the edge path instead would leave
-            // the inner radius at r - 2b and double the straight-edge
-            // thickness.
-            if let Some(path) = rounded_rect_path(0.0, 0.0, w, h, r) {
-                pixmap.fill_path(
-                    &path,
-                    &paint,
-                    FillRule::Winding,
-                    Transform::identity(),
-                    None,
-                );
-            }
-            paint.shader = Shader::SolidColor(to_sk_color(colours.background));
-            let iw = w - 2.0 * b;
-            let ih = h - 2.0 * b;
-            if iw > 0.0 && ih > 0.0 {
-                if let Some(path) = rounded_rect_path(b, b, iw, ih, (r - b).max(0.0)) {
-                    pixmap.fill_path(
-                        &path,
-                        &paint,
-                        FillRule::Winding,
-                        Transform::identity(),
-                        None,
-                    );
-                }
-            }
+            draw_rounded_background(pixmap, w, h, r, b, colours.background, colours.border);
         } else {
             bordered_rectangle(
                 pixmap,
@@ -1115,7 +1171,7 @@ impl Dispatch<WpFractionalScaleV1, ()> for WaylandState {
 
 #[cfg(test)]
 mod tests {
-    use super::{swap_rb, HotSpot, HotSpotEffect};
+    use super::{draw_rounded_background, swap_rb, HotSpot, HotSpotEffect};
 
     #[test]
     fn swap_rb_converts_rgba_to_bgra() {
@@ -1227,5 +1283,131 @@ mod tests {
         assert_eq!(a.height, 17);
         assert_eq!(b.height, 34);
         assert!(b.width > a.width);
+    }
+
+    // --- Rounded background alpha compositing ---
+
+    use crate::config::parse_colour;
+    use tiny_skia::Pixmap;
+
+    /// Sample a pixel from a premultiplied RGBA pixmap as (r, g, b, a) u8.
+    fn pixel_at(pix: &Pixmap, x: u32, y: u32) -> (u8, u8, u8, u8) {
+        let data = pix.data();
+        let idx = ((y * pix.width() + x) * 4) as usize;
+        (data[idx], data[idx + 1], data[idx + 2], data[idx + 3])
+    }
+
+    #[test]
+    fn rounded_background_translucent_bg_composites_over_compositor() {
+        // Background 0x282a36cc: dark blue with ~80% alpha.
+        // Border 0x80bfff: light blue, fully opaque.
+        let bg = parse_colour("0x282a36cc").unwrap();
+        let border = parse_colour("0x80bfff").unwrap();
+        let mut pixmap = Pixmap::new(200, 100).unwrap();
+
+        draw_rounded_background(&mut pixmap.as_mut(), 200.0, 100.0, 10.0, 4.0, bg, border);
+
+        // Center pixel: should be the background colour composited over
+        // transparent (the initial pixmap is all-zero). With SourceOver,
+        // bg over transparent = bg itself (premultiplied).
+        let (r, g, b, a) = pixel_at(&pixmap, 100, 50);
+        // Alpha ~0xcc (204). Background premultiplied: r=0x28*0xcc/0xff
+        // The premultiplied values from parse_colour are already
+        // premultiplied; to_sk_color un-premultiplies for tiny-skia
+        // which re-premultiplies internally. The result should be the
+        // original premultiplied colour.
+        assert_eq!(a, 0xcc, "center alpha should be the background alpha");
+        // Premultiplied channels: straight * alpha / 255 (truncated).
+        // r: 0x28 * 0xcc / 0xff = 32 (0x20)
+        // g: 0x2a * 0xcc / 0xff = 33 (0x21)
+        // b: 0x36 * 0xcc / 0xff = 43 (0x2b)
+        assert!(
+            (r as i16 - 0x20).abs() <= 1,
+            "center red should be ~0x20, got {r:#x}"
+        );
+        assert!(
+            (g as i16 - 0x21).abs() <= 1,
+            "center green should be ~0x21, got {g:#x}"
+        );
+        assert!(
+            (b as i16 - 0x2b).abs() <= 1,
+            "center blue should be ~0x2b, got {b:#x}"
+        );
+    }
+
+    #[test]
+    fn rounded_background_translucent_border_composites_over_background() {
+        // Background fully opaque red, border 50% transparent green.
+        let bg = parse_colour("0xff0000").unwrap();
+        let border = parse_colour("0x00ff0080").unwrap();
+        let mut pixmap = Pixmap::new(200, 100).unwrap();
+
+        draw_rounded_background(&mut pixmap.as_mut(), 200.0, 100.0, 10.0, 8.0, bg, border);
+
+        // Border pixel (in the ring, e.g. at x=2, y=50): should be the
+        // border composited over the opaque background via SourceOver.
+        // border over bg: result = border * 0.5 + bg * 0.5
+        // Green: 0xff * 0.5 = 0x7f, Red: 0xff * 0.5 = 0x7f, Blue: 0
+        let (r, g, b, a) = pixel_at(&pixmap, 2, 50);
+        assert_eq!(
+            a, 0xff,
+            "border ring should be fully opaque (bg was opaque)"
+        );
+        assert!(
+            (r as i16 - 0x7f).abs() <= 2,
+            "border red should be ~0x7f, got {r:#x}"
+        );
+        assert!(
+            (g as i16 - 0x7f).abs() <= 2,
+            "border green should be ~0x7f, got {g:#x}"
+        );
+        assert!(b <= 2, "border blue should be ~0, got {b:#x}");
+
+        // Center pixel: should be the opaque background, unaffected by
+        // the border (the EvenOdd ring does not cover the center).
+        let (r, _g, _b, a) = pixel_at(&pixmap, 100, 50);
+        assert_eq!(a, 0xff);
+        assert_eq!(r, 0xff);
+    }
+
+    #[test]
+    fn rounded_background_degenerate_no_inner_fills_border() {
+        // Border width >= half the dimension: inner rect is zero/negative.
+        // The whole outer rect should be filled with the border colour.
+        let bg = parse_colour("0xff0000").unwrap();
+        let border = parse_colour("0x00ff00").unwrap();
+        let mut pixmap = Pixmap::new(20, 10).unwrap();
+
+        // b=15 > w/2=10: inner width = 20 - 30 = -10 → degenerate
+        draw_rounded_background(&mut pixmap.as_mut(), 20.0, 10.0, 5.0, 15.0, bg, border);
+
+        let (r, g, _b, a) = pixel_at(&pixmap, 10, 5);
+        assert_eq!(a, 0xff);
+        assert_eq!(r, 0x00);
+        assert_eq!(g, 0xff);
+    }
+
+    #[test]
+    fn rounded_background_opaque_colours_no_alpha_artifacts() {
+        // Both opaque: no alpha issues at all.
+        let bg = parse_colour("0x282a36").unwrap();
+        let border = parse_colour("0x80bfff").unwrap();
+        let mut pixmap = Pixmap::new(200, 100).unwrap();
+
+        draw_rounded_background(&mut pixmap.as_mut(), 200.0, 100.0, 10.0, 4.0, bg, border);
+
+        // Center: background colour, fully opaque.
+        let (r, g, b, a) = pixel_at(&pixmap, 100, 50);
+        assert_eq!(a, 0xff);
+        assert_eq!(r, 0x28);
+        assert_eq!(g, 0x2a);
+        assert_eq!(b, 0x36);
+
+        // Border ring: border colour, fully opaque.
+        let (r, g, b, a) = pixel_at(&pixmap, 2, 50);
+        assert_eq!(a, 0xff);
+        assert_eq!(r, 0x80);
+        assert_eq!(g, 0xbf);
+        assert_eq!(b, 0xff);
     }
 }

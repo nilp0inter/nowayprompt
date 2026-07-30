@@ -28,7 +28,7 @@ tiny-skia = "0.12"
 # Text shaping and layout.
 cosmic-text = "0.19"
 # Font source type for `FontSystem::new_with_fonts` (transitive dep of cosmic-text).
-fontdb = "0.23"
+fontdb = "0.24"
 # XKB keymap handling — the sole runtime C dynamic-library dependency:
 # dlopens libxkbcommon.so at runtime. No `x11` feature — this is a
 # Wayland-only frontend, and the nix buildInputs provide only

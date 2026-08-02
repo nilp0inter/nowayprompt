@@ -53,8 +53,8 @@ const FONT_SIZE_LARGE: f32 = 20.0;
 
 fn new_font_system() -> FontSystem {
     FontSystem::new_with_fonts([
-        fontdb::Source::Binary(Arc::new(FONT_REGULAR.to_vec())),
-        fontdb::Source::Binary(Arc::new(FONT_BOLD.to_vec())),
+        cosmic_text::fontdb::Source::Binary(Arc::new(FONT_REGULAR.to_vec())),
+        cosmic_text::fontdb::Source::Binary(Arc::new(FONT_BOLD.to_vec())),
     ])
 }
 
@@ -1409,7 +1409,7 @@ mod tests {
     #[test]
     fn descriptor_size_reaches_shaping_metrics() {
         // A bundled-only database keeps this test off the system font set.
-        let mut db = fontdb::Database::new();
+        let mut db = cosmic_text::fontdb::Database::new();
         db.load_font_data(FONT_REGULAR.to_vec());
         db.load_font_data(FONT_BOLD.to_vec());
         db.set_sans_serif_family("DejaVu Sans");

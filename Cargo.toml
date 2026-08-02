@@ -25,10 +25,10 @@ wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 # fractional_scale needs `staging`.
 wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
 tiny-skia = "0.12"
-# Text shaping and layout.
+# Text shaping and layout. `cosmic_text::fontdb` re-exports the exact
+# fontdb version cosmic-text links against; font types passed to
+# `FontSystem::new_with_fonts` must come from that re-export.
 cosmic-text = "0.19"
-# Font source type for `FontSystem::new_with_fonts` (transitive dep of cosmic-text).
-fontdb = "0.23"
 # XKB keymap handling — the sole runtime C dynamic-library dependency:
 # dlopens libxkbcommon.so at runtime. No `x11` feature — this is a
 # Wayland-only frontend, and the nix buildInputs provide only

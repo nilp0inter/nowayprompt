@@ -598,7 +598,7 @@ impl Drop for WaylandBuffer {
 
 // In-place byte swapper: Converts RGBA (tiny-skia format) to BGRA (Wayland native format)
 pub fn swap_red_blue_inplace(buf: &mut [u8]) {
-    for chunk in buf.chunks_exact_mut(4) {
+    for chunk in data.as_chunks_mut::<4>().0 {
         // chunk is [R, G, B, A] -> Swap index 0 and 2 -> [B, G, R, A]
         chunk.swap(0, 2);
     }

@@ -1213,7 +1213,7 @@ pub fn render_surface(state: &mut WaylandState, qh: &QueueHandle<WaylandState>) 
 /// Swap R and B channels in place, converting tiny-skia's premultiplied
 /// RGBA8888 byte order to Wayland's little-endian Argb8888.
 pub fn swap_rb(data: &mut [u8]) {
-    for px in data.chunks_exact_mut(4) {
+    for px in data.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
 }

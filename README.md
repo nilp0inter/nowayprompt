@@ -39,6 +39,17 @@ It needs a compositor with the layer-shell protocol
 > you embrace it, as we did, it soon becomes an *indispensable* tool in your
 > daily workflow.
 
+Update, as of 22nd. November 2026:
+
+> [!WARNING]
+> Zig 0.13[^5] and `wayprompt`[^6] have been dropped from `nixpkgs-unstable`
+> prior to the `nixos-26.11` release.
+> `wayprompt` has also been dropped from Home Manager[^7] and is about to be
+> from Stylix[^8].
+>
+> @LordMZTE maintains a fork[^9][^10] of `wayprompt`, ported to Zig 0.16, and
+> providing a flake.
+
 [^1]: At the time of writing, July 27, 2026. [Last
     commit](https://git.sr.ht/~leon_plickat/wayprompt/commit/66fe87408d3cfba8c8cc6ff65c1868e5db6ad3bb)
     on August 25, 2024.
@@ -47,6 +58,12 @@ It needs a compositor with the layer-shell protocol
 [^3]: Zig 0.12 [was dropped](https://github.com/NixOS/nixpkgs/pull/434644) from
     Nixpkgs (unstable branch) in August, 2025.
 [^4]: Yes, Home Manager and Stylix handle it, no sweat.
+[^5]: https://github.com/NixOS/nixpkgs/pull/589933
+[^6]: https://github.com/NixOS/nixpkgs/pull/588296
+[^7]: https://github.com/nix-community/home-manager/commit/0b76e61bc23e90c90f49dd1fecafbd83a43af65d
+[^8]: https://github.com/nix-community/stylix/issues/2556
+[^9]: https://github.com/NixOS/nixpkgs/issues/545176#issuecomment-5097415975
+[^10]: https://git.mzte.de/LordMZTE/wayprompt
 
 ---
 

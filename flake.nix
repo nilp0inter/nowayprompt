@@ -30,11 +30,26 @@
       # perSystem) output: nixosTest VMs are x86_64-linux, and the test
       # closure must install the oracle from the pinned nixos-26.05 input
       # while installing the target built by this flake.
-      flake.nixosTests = import ./nixos-tests {
-        inherit (nixpkgs) lib;
-        nixpkgs = nixpkgs-26_05;
-        pkgs = nixpkgs-26_05.legacyPackages.x86_64-linux;
-        selfpkgs = self.packages;
+      flake = {
+        nixosTests = import ./nixos-tests {
+          inherit (nixpkgs) lib;
+          nixpkgs = nixpkgs-26_05;
+          pkgs = nixpkgs-26_05.legacyPackages.x86_64-linux;
+          selfpkgs = self.packages;
+        };
+
+        overlays = {
+          default = self.overlays.nowayprompt;
+          nowayprompt = final: _prev: {
+            nowayprompt = self.packages.${final.stdenv.hostPlatform.system}.nowayprompt;
+          };
+        };
+
+        homeModules = {
+          default = self.homeModules.nowayprompt;
+          nowayprompt = import ./modules/home-manager.nix { inherit self; };
+          stylix = import ./modules/stylix.nix { inherit self; };
+        };
       };
       perSystem = { pkgs, system, config, ... }:
         let
@@ -147,21 +162,28 @@
               cargoInstallFlags = [ "--bin" "nowayprompt-wayland-test" ];
             };
 
-          checks.nowayprompt-package-interface = pkgs.runCommand
-            "nowayprompt-package-interface"
-            { target = self.packages.${system}.nowayprompt; }
-            ''
-              test -x "$target/bin/nowayprompt"
-              test -L "$target/bin/pinentry-nowayprompt"
-              test -L "$target/bin/nowayprompt-ssh-askpass"
-              test "$(readlink "$target/bin/pinentry-nowayprompt")" = nowayprompt
-              test "$(readlink "$target/bin/nowayprompt-ssh-askpass")" = nowayprompt
-              test -f "$target/share/man/man1/nowayprompt.1.gz"
-              test -f "$target/share/man/man1/pinentry-nowayprompt.1.gz"
-              test -f "$target/share/man/man1/nowayprompt-ssh-askpass.1.gz"
-              test -f "$target/share/man/man5/nowayprompt.conf.5.gz"
-              touch "$out"
-            '';
+          checks =
+            {
+              nowayprompt-package-interface = pkgs.runCommand
+                "nowayprompt-package-interface"
+                { target = self.packages.${system}.nowayprompt; }
+                ''
+                  test -x "$target/bin/nowayprompt"
+                  test -L "$target/bin/pinentry-nowayprompt"
+                  test -L "$target/bin/nowayprompt-ssh-askpass"
+                  test "$(readlink "$target/bin/pinentry-nowayprompt")" = nowayprompt
+                  test "$(readlink "$target/bin/nowayprompt-ssh-askpass")" = nowayprompt
+                  test -f "$target/share/man/man1/nowayprompt.1.gz"
+                  test -f "$target/share/man/man1/pinentry-nowayprompt.1.gz"
+                  test -f "$target/share/man/man1/nowayprompt-ssh-askpass.1.gz"
+                  test -f "$target/share/man/man5/nowayprompt.conf.5.gz"
+                  touch "$out"
+                '';
+            }
+            // import ./modules/checks.nix {
+              inherit self pkgs;
+              inherit (pkgs) lib;
+            };
 
           devShells.default = pkgs.mkShell {
             packages = rustToolchain ++ nativeDeps;

@@ -47,6 +47,9 @@ Update, as of 22nd. November 2026:
 > `wayprompt` has also been dropped from Home Manager[^7] and is about to be
 > from Stylix[^8].
 >
+> `nowayprompt` now provides its own [Home Manager and Stylix
+> modules](#home-manager--stylix) directly from this flake.
+>
 > @LordMZTE maintains a fork[^9][^10] of `wayprompt`, ported to Zig 0.16, and
 > providing a flake.
 
@@ -117,6 +120,90 @@ cargo build --release
 ```sh
 nix build
 ```
+
+---
+
+## Home Manager & Stylix
+
+This flake exports Home Manager and Stylix modules under `homeModules`, as well
+as an overlay (`overlays.default` / `overlays.nowayprompt`) providing
+`pkgs.nowayprompt`.
+
+Add `nowayprompt` to your flake inputs:
+
+```nix
+{
+  inputs = {
+    nowayprompt = {
+      url = "github:nilp0inter/nowayprompt";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+}
+```
+
+### Home Manager
+
+Import `inputs.nowayprompt.homeModules.default` in your Home Manager
+configuration:
+
+```nix
+{ config, inputs, ... }:
+{
+  imports = [ inputs.nowayprompt.homeModules.default ];
+
+  programs.nowayprompt = {
+    enable = true;
+    settings = {
+      general = {
+        font-regular = "sans:size=14";
+        font-large = "sans:size=20";
+        pin-square-amount = 32;
+      };
+      colours = {
+        background = "ffffffaa";
+      };
+    };
+  };
+
+  # Optional: use nowayprompt as GPG pinentry
+  services.gpg-agent.pinentry.package = config.programs.nowayprompt.package;
+}
+```
+
+Configuration is written to `$XDG_CONFIG_HOME/nowayprompt/config.ini`. Colours
+accept 6-hex-digit RGB or 8-hex-digit RGBA values, with or without a leading
+`0x` or `#`.
+
+### Stylix
+
+If you use Stylix, import `inputs.nowayprompt.homeModules.stylix` instead of (or
+in addition to) `homeModules.default`:
+
+```nix
+{ inputs, ... }:
+{
+  imports = [ inputs.nowayprompt.homeModules.stylix ];
+
+  programs.nowayprompt.enable = true;
+
+  # All options below default to enabled (respecting stylix.autoEnable):
+  # stylix.targets.nowayprompt = {
+  #   enable = true;
+  #   colors.enable = true;
+  #   opacity.enable = true;
+  #   fonts.enable = true;
+  # };
+}
+```
+
+`homeModules.stylix` imports `homeModules.nowayprompt` automatically and themes
+`[colours]` (using `config.lib.stylix.colors` and `stylix.opacity.popups`) plus
+`font-regular` and `font-large` (using `stylix.fonts.sansSerif` and
+`stylix.fonts.sizes.popups`). Each Stylix setting uses `lib.mkDefault`, so
+individual entries under `programs.nowayprompt.settings` override Stylix cleanly
+without `lib.mkForce`. Target-level `.override` options (`colors.override`,
+`opacity.override`, `fonts.override`) are also supported.
 
 ---
 

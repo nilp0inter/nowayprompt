@@ -50,7 +50,7 @@ Update, as of 22nd. November 2026:
 > `nowayprompt` now provides its own [Home Manager and Stylix
 > modules](#home-manager--stylix) directly from this flake.
 >
-> @LordMZTE maintains a fork[^9][^10] of `wayprompt`, ported to Zig 0.16, and
+> @LordMZTE maintains a fork[^9][^10] of `wayprompt`, ported to Zig 0.17, and
 > providing a flake.
 
 [^1]: At the time of writing, July 27, 2026. [Last
